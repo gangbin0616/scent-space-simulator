@@ -3,6 +3,7 @@ import {
   PLAN_WIDTH,
   drawFloorPlan,
   getWallLines,
+  isWalkable,
   partitionEndpoints,
   snapToWalkable,
 } from "./floorplan.js";
@@ -58,8 +59,11 @@ const elementInfo = {
   partition: ["가벽", "동선과 향의 흐름을 막는 임시 벽입니다. 시뮬레이션에서도 실제 차단물로 계산됩니다.", "배치형 파티션"],
   fan: ["서큘레이터", "뒤쪽 공기를 흡입하고 앞쪽으로 내보내 향의 이동 방향을 만듭니다.", "흡입/토출 흐름"],
   heater: ["온열 장치", "주변 확산을 빠르게 만들고 감쇠도 높여 향이 빠르게 퍼졌다 옅어지게 합니다.", "상승 열기"],
-  cooler: ["냉각 장치", "주변 확산을 늦추고 감쇠를 낮춰 향이 천천히 머무는 구역을 만듭니다.", "잔향 유지"],
+  cooler: ["냉방 장치", "주변 확산을 늦추고 감쇠를 낮춰 향이 천천히 머무는 구역을 만듭니다.", "잔향 유지"],
   route: ["체험 동선", "입구에서 체험존까지의 이동 경로를 기준으로 향의 도착 농도를 확인합니다.", "방문자 흐름"],
+  entrance: ["유리문 입구", "성수 쇼룸처럼 외부 빛이 들어오는 투명한 입구 장면입니다.", "워크스루 시작점"],
+  mural: ["브랜드 월 이미지", "벽면에 직접 붙은 향수 매장 이미지 패널입니다. 도면 좌표에 맞춰 보이고 가려집니다.", "성수 매장 무드"],
+  shelf: ["향수 진열 선반", "벽면 이미지와 함께 자연스럽게 놓이는 진열 오브젝트입니다.", "제품 디스플레이"],
 };
 
 function writeInfo(panel, key) {
@@ -72,10 +76,19 @@ const viewer = {
   map: document.querySelector("#viewerMapCanvas"),
   info: document.querySelector("#viewerInfo"),
   yaw: -Math.PI / 2,
+  pitch: 0,
   camera: { x: 190, y: 700 },
   dragging: null,
   marker: null,
+  keys: new Set(),
+  lastMoveAt: 0,
 };
+
+const VIEWER_FOV = Math.PI * 0.72;
+const VIEWER_COLLISION_RADIUS = 15;
+const VIEWER_MOVE_SPEED = 138;
+const VIEWER_TURN_SPEED = 2.15;
+const VIEWER_MAX_PITCH = 0.62;
 
 const cameras = {
   entry: { x: 120, y: 880, yaw: -Math.PI / 2 },
@@ -86,11 +99,14 @@ const cameras = {
 };
 
 const viewerElements = [
-  { key: "partition", x: 230, y: 530, label: "가벽" },
-  { key: "fan", x: 250, y: 650, label: "순환" },
-  { key: "heater", x: 166, y: 665, label: "온열" },
-  { key: "cooler", x: 400, y: 210, label: "냉각" },
-  { key: "route", x: 300, y: 760, label: "동선" },
+  { key: "entrance", x: 120, y: 905, label: "입구", kind: "glass-door", anchor: 0.62 },
+  { key: "partition", x: 230, y: 530, label: "가벽", kind: "partition", anchor: 0.72 },
+  { key: "fan", x: 250, y: 650, label: "순환", kind: "fan", anchor: 0.74 },
+  { key: "heater", x: 166, y: 665, label: "온열", kind: "heater", anchor: 0.74 },
+  { key: "cooler", x: 400, y: 210, label: "냉방", kind: "cooler", anchor: 0.72 },
+  { key: "mural", x: 315, y: 760, label: "월이미지", kind: "mural", anchor: 0.42 },
+  { key: "shelf", x: 300, y: 590, label: "선반", kind: "shelf", anchor: 0.52 },
+  { key: "route", x: 300, y: 760, label: "동선", kind: "route", anchor: 0.78 },
 ];
 
 function normalizeAngle(angle) {
@@ -100,7 +116,11 @@ function normalizeAngle(angle) {
   return next;
 }
 
-function raySegmentDistance(origin, angle, segment) {
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function raySegmentHit(origin, angle, segment) {
   const [x1, y1, x2, y2] = segment;
   const rx = Math.cos(angle);
   const ry = Math.sin(angle);
@@ -112,33 +132,311 @@ function raySegmentDistance(origin, angle, segment) {
   const qpy = y1 - origin.y;
   const t = (qpx * sy - qpy * sx) / denom;
   const u = (qpx * ry - qpy * rx) / denom;
-  return t >= 0 && u >= 0 && u <= 1 ? t : Infinity;
+  if (t < 0 || u < 0 || u > 1) return null;
+  return { distance: t, segment, wallAngle: Math.atan2(sy, sx) };
 }
 
-function castRay(origin, angle) {
-  let best = Infinity;
-  for (const segment of getWallLines()) best = Math.min(best, raySegmentDistance(origin, angle, segment));
+function castRayHit(origin, angle) {
+  let best = { distance: Infinity, segment: null, wallAngle: 0 };
+  for (const segment of getWallLines()) {
+    const hit = raySegmentHit(origin, angle, segment);
+    if (hit && hit.distance < best.distance) best = hit;
+  }
   return best;
 }
 
-function drawPerfumeSilhouette(ctx, x, baseY, size, color) {
+function castRay(origin, angle) {
+  return castRayHit(origin, angle).distance;
+}
+
+function canViewerStandAt(x, y) {
+  const r = VIEWER_COLLISION_RADIUS;
+  return (
+    isWalkable(x, y) &&
+    isWalkable(x + r, y) &&
+    isWalkable(x - r, y) &&
+    isWalkable(x, y + r) &&
+    isWalkable(x, y - r) &&
+    isWalkable(x + r * 0.7, y + r * 0.7) &&
+    isWalkable(x - r * 0.7, y - r * 0.7) &&
+    isWalkable(x + r * 0.7, y - r * 0.7) &&
+    isWalkable(x - r * 0.7, y + r * 0.7)
+  );
+}
+
+function moveViewerCamera(dx, dy) {
+  const nextX = viewer.camera.x + dx;
+  const nextY = viewer.camera.y + dy;
+  if (canViewerStandAt(nextX, viewer.camera.y)) viewer.camera.x = nextX;
+  if (canViewerStandAt(viewer.camera.x, nextY)) viewer.camera.y = nextY;
+}
+
+function updateViewerMovement(now) {
+  const viewerPage = document.querySelector('[data-page="viewer"]');
+  if (!viewerPage || viewerPage.hidden) {
+    viewer.lastMoveAt = now;
+    return;
+  }
+  const last = viewer.lastMoveAt || now;
+  const dt = Math.min(0.045, Math.max(0, (now - last) / 1000));
+  viewer.lastMoveAt = now;
+
+  let turn = 0;
+  if (viewer.keys.has("arrowleft")) turn -= 1;
+  if (viewer.keys.has("arrowright")) turn += 1;
+  if (turn) viewer.yaw += turn * VIEWER_TURN_SPEED * dt;
+
+  let forward = 0;
+  let strafe = 0;
+  if (viewer.keys.has("w") || viewer.keys.has("arrowup")) forward += 1;
+  if (viewer.keys.has("s") || viewer.keys.has("arrowdown")) forward -= 1;
+  if (viewer.keys.has("a")) strafe -= 1;
+  if (viewer.keys.has("d")) strafe += 1;
+  const length = Math.hypot(forward, strafe);
+  if (!length && !turn) return;
+
+  if (length) {
+    forward /= length;
+    strafe /= length;
+    const cos = Math.cos(viewer.yaw);
+    const sin = Math.sin(viewer.yaw);
+    const speed = VIEWER_MOVE_SPEED * dt;
+    const dx = (cos * forward + Math.cos(viewer.yaw + Math.PI / 2) * strafe) * speed;
+    const dy = (sin * forward + Math.sin(viewer.yaw + Math.PI / 2) * strafe) * speed;
+    moveViewerCamera(dx, dy);
+  }
+  drawViewer();
+}
+
+function drawViewerWallStripe(ctx, x, y, wallHeight, distance, shade, columnIndex) {
+  const top = Math.max(0, y);
+  const bottom = Math.min(ctx.canvas.height, y + wallHeight);
+  const wallShade = ctx.createLinearGradient(x, top, x, bottom);
+  wallShade.addColorStop(0, `rgb(${Math.min(238, shade + 22)}, ${Math.min(229, shade + 12)}, ${Math.min(216, shade + 4)})`);
+  wallShade.addColorStop(0.42, `rgb(${Math.min(224, shade + 4)}, ${Math.max(70, shade - 6)}, ${Math.max(64, shade - 16)})`);
+  wallShade.addColorStop(1, `rgb(${Math.max(42, shade - 50)}, ${Math.max(38, shade - 54)}, ${Math.max(34, shade - 58)})`);
+  ctx.fillStyle = wallShade;
+  ctx.fillRect(x, y, 2, wallHeight);
+
+  const seamStrength = Math.max(0.02, Math.min(0.11, 1 - distance / 520));
+  if (columnIndex % 48 === 0) {
+    ctx.fillStyle = `rgba(255,250,242,${seamStrength})`;
+    ctx.fillRect(x, y + wallHeight * 0.08, 1, wallHeight * 0.84);
+  }
+
+  const railAlpha = Math.max(0.03, Math.min(0.16, 1 - distance / 440));
+  ctx.fillStyle = `rgba(255,250,242,${railAlpha})`;
+  ctx.fillRect(x, y + wallHeight * 0.34, 2, Math.max(1, wallHeight * 0.006));
+  ctx.fillStyle = `rgba(35,26,20,${railAlpha * 0.8})`;
+  ctx.fillRect(x, y + wallHeight * 0.79, 2, Math.max(2, wallHeight * 0.01));
+
+  const imageAlpha = Math.max(0.025, Math.min(0.18, 1 - distance / 560));
+  const band = Math.floor(columnIndex / 36) % 5;
+  if (band === 1 || band === 2) {
+    const panelTop = y + wallHeight * 0.2;
+    const panelHeight = wallHeight * 0.34;
+    const tone = band === 1 ? "216, 95, 55" : "79, 143, 106";
+    ctx.fillStyle = `rgba(${tone},${imageAlpha})`;
+    ctx.fillRect(x, panelTop, 2, panelHeight);
+    ctx.fillStyle = `rgba(255,250,242,${imageAlpha * 0.62})`;
+    ctx.fillRect(x, panelTop + panelHeight * 0.18, 2, Math.max(1, panelHeight * 0.025));
+    ctx.fillRect(x, panelTop + panelHeight * 0.58, 2, Math.max(1, panelHeight * 0.018));
+  }
+}
+
+function drawCeilingLights(ctx, horizon) {
+  const { width: w, height: h } = ctx.canvas;
   ctx.save();
-  ctx.translate(x, baseY);
-  ctx.scale(size, size);
-  ctx.fillStyle = "rgba(15,12,10,0.34)";
+  for (let i = -2; i <= 2; i += 1) {
+    const x = w / 2 + i * 155 - normalizeAngle(viewer.yaw) * 18;
+    const y = horizon * 0.22 + Math.abs(i) * 10 + viewer.pitch * 34;
+    const glow = ctx.createRadialGradient(x, y, 4, x, y, 92);
+    glow.addColorStop(0, "rgba(255,244,216,0.62)");
+    glow.addColorStop(0.18, "rgba(255,231,178,0.24)");
+    glow.addColorStop(1, "rgba(255,231,178,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, 92, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,252,236,0.94)";
+    ctx.beginPath();
+    ctx.ellipse(x, y, 22, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.96)";
+    ctx.beginPath();
+    ctx.ellipse(x, y - 1, 9, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawMuralPanel(ctx, item) {
+  ctx.save();
+  ctx.translate(item.screenX, item.screenY);
+  const scale = item.size / 96;
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = item.alpha;
+  const panel = ctx.createLinearGradient(-72, -70, 72, 64);
+  panel.addColorStop(0, "#f5eadb");
+  panel.addColorStop(0.36, "#cf7f62");
+  panel.addColorStop(0.64, "#4f8f6a");
+  panel.addColorStop(1, "#201914");
+  ctx.fillStyle = "rgba(22,17,14,0.28)";
+  ctx.fillRect(-80, -66, 160, 112);
+  ctx.fillStyle = panel;
   ctx.beginPath();
-  ctx.ellipse(0, 10, 34, 8, 0, 0, Math.PI * 2);
+  ctx.roundRect(-74, -72, 148, 108, 8);
   ctx.fill();
-  ctx.fillStyle = color;
-  ctx.strokeStyle = "rgba(255,250,242,0.55)";
+  ctx.fillStyle = "rgba(255,250,242,0.62)";
+  ctx.fillRect(-52, -46, 104, 6);
+  ctx.fillRect(-52, -30, 72, 4);
+  ctx.fillStyle = "rgba(255,250,242,0.18)";
+  ctx.beginPath();
+  ctx.arc(32, -10, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawShelfDisplay(ctx, item) {
+  ctx.save();
+  ctx.translate(item.screenX, item.screenY);
+  const scale = item.size / 92;
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = item.alpha;
+  ctx.fillStyle = "rgba(22,17,14,0.26)";
+  ctx.fillRect(-82, 26, 164, 10);
+  ctx.fillStyle = "rgba(255,250,242,0.54)";
+  ctx.fillRect(-76, 18, 152, 8);
+  for (let i = 0; i < 5; i += 1) {
+    const x = -52 + i * 26;
+    const colors = ["#d85f37", "#c45d8f", "#7b4f35", "#6f7890", "#4f8f6a"];
+    ctx.fillStyle = colors[i];
+    ctx.beginPath();
+    ctx.roundRect(x - 8, -22 - (i % 2) * 6, 16, 40 + (i % 2) * 6, 5);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,250,242,0.44)";
+    ctx.fillRect(x - 4, -30 - (i % 2) * 6, 8, 8);
+  }
+  ctx.restore();
+}
+
+function drawWallObject(ctx, item) {
+  if (item.kind === "mural") {
+    drawMuralPanel(ctx, item);
+    return;
+  }
+  if (item.kind === "shelf") {
+    drawShelfDisplay(ctx, item);
+    return;
+  }
+  ctx.save();
+  ctx.translate(item.screenX, item.screenY);
+  const scale = item.size / 82;
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = item.alpha;
+
+  ctx.fillStyle = "rgba(22,17,14,0.24)";
+  ctx.beginPath();
+  ctx.ellipse(0, 48, 44, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (item.kind === "glass-door") {
+    const glass = ctx.createLinearGradient(-52, -72, 52, 48);
+    glass.addColorStop(0, "rgba(226,246,255,0.72)");
+    glass.addColorStop(0.48, "rgba(255,250,242,0.18)");
+    glass.addColorStop(1, "rgba(69,92,96,0.46)");
+    ctx.fillStyle = glass;
+    ctx.beginPath();
+    ctx.roundRect(-54, -78, 108, 126, 9);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,250,242,0.62)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.38)";
+    ctx.fillRect(-34, -60, 8, 86);
+    ctx.fillRect(18, -60, 8, 86);
+    ctx.fillStyle = "rgba(32,25,20,0.55)";
+    ctx.fillRect(-4, -78, 8, 126);
+  } else if (item.kind === "partition") {
+    const partition = ctx.createLinearGradient(-44, -34, 44, 42);
+    partition.addColorStop(0, "rgba(118,92,74,0.86)");
+    partition.addColorStop(1, "rgba(73,52,43,0.92)");
+    ctx.fillStyle = partition;
+    ctx.beginPath();
+    ctx.roundRect(-48, -42, 96, 88, 8);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,250,242,0.14)";
+    ctx.fillRect(-36, -24, 72, 8);
+    ctx.fillRect(-36, -8, 72, 4);
+  } else if (item.kind === "fan") {
+    ctx.fillStyle = "rgba(47,111,105,0.78)";
+    ctx.beginPath();
+    ctx.arc(0, -3, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,250,242,0.42)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, -3, 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(32,25,20,0.55)";
+    ctx.fillRect(-6, 28, 12, 28);
+    ctx.strokeStyle = "rgba(47,111,105,0.34)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-52, -4);
+    ctx.bezierCurveTo(-30, -22, -16, -16, -4, -6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(18, -8);
+    ctx.bezierCurveTo(44, -24, 62, -16, 78, -4);
+    ctx.stroke();
+  } else if (item.kind === "heater" || item.kind === "cooler") {
+    const color = item.kind === "heater" ? "rgba(182,84,50,0.82)" : "rgba(70,126,120,0.82)";
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(-30, -38, 60, 82, 10);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,250,242,0.2)";
+    for (let i = 0; i < 4; i += 1) ctx.fillRect(-20, -22 + i * 14, 40, 3);
+    ctx.strokeStyle = item.kind === "heater" ? "rgba(255,190,124,0.52)" : "rgba(158,224,220,0.52)";
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i += 1) {
+      ctx.beginPath();
+      if (item.kind === "heater") {
+        const x = -18 + i * 18;
+        ctx.moveTo(x, -48);
+        ctx.bezierCurveTo(x - 10, -66, x + 12, -72, x, -92);
+      } else {
+        ctx.arc(0, 0, 44 + i * 12, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+  } else {
+    ctx.strokeStyle = "rgba(255,250,242,0.36)";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(-42, 22);
+    ctx.bezierCurveTo(-12, -30, 20, -16, 46, -42);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(225,163,95,0.74)";
+    ctx.beginPath();
+    ctx.arc(46, -42, 9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = viewer.marker === item.key ? "rgba(225,163,95,0.96)" : "rgba(32,25,20,0.76)";
+  ctx.strokeStyle = "rgba(255,250,242,0.56)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.roundRect(-18, -58, 36, 58, 8);
+  ctx.arc(0, -58, 22, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = "rgba(32,25,20,0.88)";
-  ctx.fillRect(-9, -76, 18, 18);
-  ctx.fillRect(-15, -84, 30, 8);
+  ctx.fillStyle = "#fffaf2";
+  ctx.font = "900 10px Pretendard, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(item.label, 0, -58);
   ctx.restore();
 }
 
@@ -148,56 +446,60 @@ function drawViewer() {
   if (!ctx) return;
   const w = canvas.width;
   const h = canvas.height;
-  const fov = Math.PI * 0.62;
+  const fov = VIEWER_FOV;
   const origin = viewer.camera;
+  const horizon = h * (0.47 + viewer.pitch * 0.24);
 
   const sky = ctx.createLinearGradient(0, 0, 0, h / 2);
-  sky.addColorStop(0, "#f4eadc");
-  sky.addColorStop(1, "#bca98f");
+  sky.addColorStop(0, "#f6efe4");
+  sky.addColorStop(1, "#cabaa2");
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, h / 2);
-  const floor = ctx.createLinearGradient(0, h / 2, 0, h);
-  floor.addColorStop(0, "#7a6a56");
-  floor.addColorStop(1, "#251e19");
+  ctx.fillRect(0, 0, w, horizon);
+  drawCeilingLights(ctx, horizon);
+  const floor = ctx.createLinearGradient(0, horizon, 0, h);
+  floor.addColorStop(0, "#9b8972");
+  floor.addColorStop(0.52, "#645442");
+  floor.addColorStop(1, "#231c17");
   ctx.fillStyle = floor;
-  ctx.fillRect(0, h / 2, w, h / 2);
+  ctx.fillRect(0, horizon, w, h - horizon);
+
+  ctx.strokeStyle = "rgba(255,250,242,0.08)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 11; i += 1) {
+    const y = horizon + 18 + i * i * 3.6;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.12 - i * 54, y);
+    ctx.lineTo(w * 0.88 + i * 54, y);
+    ctx.stroke();
+  }
+  for (let i = -7; i <= 7; i += 1) {
+    const offset = i * 70 + normalizeAngle(viewer.yaw) * 24;
+    ctx.strokeStyle = "rgba(28,21,16,0.12)";
+    ctx.beginPath();
+    ctx.moveTo(w / 2 + offset * 0.18, horizon);
+    ctx.lineTo(w / 2 + offset * 2.4, h);
+    ctx.stroke();
+  }
 
   ctx.fillStyle = "rgba(25,18,14,0.18)";
   ctx.beginPath();
   ctx.ellipse(w / 2, h * 0.86, w * 0.34, h * 0.08, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  const depthColumns = [];
   for (let x = 0; x < w; x += 2) {
     const delta = (x / w - 0.5) * fov;
     const rayAngle = viewer.yaw + delta;
-    const rawDistance = castRay(origin, rayAngle);
+    const hit = castRayHit(origin, rayAngle);
+    const rawDistance = hit.distance;
     const corrected = Math.max(8, rawDistance * Math.cos(delta));
-    const wallHeight = Math.min(h * 1.35, (h * 235) / corrected);
-    const y = h / 2 - wallHeight / 2;
-    const shade = Math.max(74, Math.min(222, 224 - corrected * 0.28));
-    const wallShade = ctx.createLinearGradient(x, y, x, y + wallHeight);
-    wallShade.addColorStop(0, `rgb(${Math.min(255, shade + 16)}, ${shade}, ${Math.max(0, shade - 10)})`);
-    wallShade.addColorStop(0.55, `rgb(${shade}, ${Math.max(0, shade - 20)}, ${Math.max(0, shade - 34)})`);
-    wallShade.addColorStop(1, `rgb(${Math.max(0, shade - 42)}, ${Math.max(0, shade - 48)}, ${Math.max(0, shade - 54)})`);
-    ctx.fillStyle = wallShade;
-    ctx.fillRect(x, y, 2, wallHeight);
-    if (x % 74 === 0) {
-      ctx.fillStyle = "rgba(255,250,242,0.16)";
-      ctx.fillRect(x, y + wallHeight * 0.32, 2, 3);
-      ctx.fillRect(x, y + wallHeight * 0.58, 2, 3);
-    }
+    const wallHeight = Math.min(h * 1.18, (h * 188) / corrected);
+    const y = horizon - wallHeight * 0.52;
+    const angleLight = Math.abs(Math.cos((hit.wallAngle ?? 0) - viewer.yaw));
+    const shade = Math.max(86, Math.min(224, 218 - corrected * 0.2 + angleLight * 18));
+    drawViewerWallStripe(ctx, x, y, wallHeight, corrected, shade, x / 2);
+    depthColumns.push({ x, distance: corrected, y, wallHeight });
   }
-
-  ctx.strokeStyle = "rgba(255,250,242,0.2)";
-  ctx.lineWidth = 3;
-  for (const shelfY of [h * 0.42, h * 0.52]) {
-    ctx.beginPath();
-    ctx.moveTo(w * 0.18, shelfY);
-    ctx.lineTo(w * 0.82, shelfY);
-    ctx.stroke();
-  }
-  drawPerfumeSilhouette(ctx, w * 0.42, h * 0.68, 1.2, "rgba(216,95,55,0.74)");
-  drawPerfumeSilhouette(ctx, w * 0.58, h * 0.63, 0.92, "rgba(79,143,106,0.68)");
 
   const visibleElements = [];
   for (const item of viewerElements) {
@@ -208,27 +510,19 @@ function drawViewer() {
     if (Math.abs(delta) > fov / 2) continue;
     if (distance > castRay(origin, Math.atan2(dy, dx)) + 20) continue;
     const screenX = (0.5 + delta / fov) * w;
-    const size = Math.max(42, 98 - distance * 0.09);
-    visibleElements.push({ ...item, screenX, size, distance });
+    const column = depthColumns[Math.max(0, Math.min(depthColumns.length - 1, Math.floor(screenX / 2)))] ?? { y: h * 0.2, wallHeight: h * 0.6 };
+    const size = Math.max(36, Math.min(86, 118 - distance * 0.13));
+    const screenY = Math.min(h * 0.82, column.y + column.wallHeight * (item.anchor ?? 0.73));
+    visibleElements.push({ ...item, screenX, screenY, size, distance, alpha: Math.max(0.46, Math.min(0.95, 1 - distance / 720)) });
   }
 
-  for (const item of visibleElements.sort((a, b) => b.distance - a.distance)) {
-    ctx.save();
-    ctx.translate(item.screenX, h / 2 + 24);
-    ctx.fillStyle = viewer.marker === item.key ? "rgba(225,163,95,0.95)" : "rgba(32,25,20,0.86)";
-    ctx.strokeStyle = "rgba(255,250,242,0.56)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, item.size / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#fffaf2";
-    ctx.font = "900 15px Pretendard, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(item.label, 0, 0);
-    ctx.restore();
-  }
+  for (const item of visibleElements.sort((a, b) => b.distance - a.distance)) drawWallObject(ctx, item);
+
+  const vignette = ctx.createRadialGradient(w / 2, h / 2, h * 0.1, w / 2, h / 2, w * 0.72);
+  vignette.addColorStop(0, "rgba(0,0,0,0)");
+  vignette.addColorStop(1, "rgba(12,9,7,0.24)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, w, h);
 
   drawViewerMap();
 }
@@ -265,6 +559,18 @@ function drawViewerMap() {
 }
 
 function initViewer() {
+  window.__viewerDebug = {
+    get camera() {
+      return { ...viewer.camera };
+    },
+    get yaw() {
+      return viewer.yaw;
+    },
+    get pitch() {
+      return viewer.pitch;
+    },
+    canStand: canViewerStandAt,
+  };
   document.querySelectorAll("[data-camera]").forEach((button) => {
     button.addEventListener("click", () => {
       const preset = cameras[button.dataset.camera];
@@ -275,20 +581,24 @@ function initViewer() {
   });
   viewer.canvas?.addEventListener("pointerdown", (event) => {
     viewer.canvas.setPointerCapture(event.pointerId);
-    viewer.dragging = { x: event.clientX, yaw: viewer.yaw };
+    viewer.dragging = { x: event.clientX, y: event.clientY, yaw: viewer.yaw, pitch: viewer.pitch };
   });
   viewer.canvas?.addEventListener("pointermove", (event) => {
     if (!viewer.dragging) return;
     viewer.yaw = viewer.dragging.yaw - (event.clientX - viewer.dragging.x) * 0.008;
+    viewer.pitch = clamp(viewer.dragging.pitch + (event.clientY - viewer.dragging.y) * 0.0046, -VIEWER_MAX_PITCH, VIEWER_MAX_PITCH);
     drawViewer();
   });
   viewer.canvas?.addEventListener("pointerup", () => {
     viewer.dragging = null;
   });
+  viewer.canvas?.addEventListener("pointerleave", () => {
+    viewer.dragging = null;
+  });
   viewer.canvas?.addEventListener("click", (event) => {
     const rect = viewer.canvas.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width) * viewer.canvas.width;
-    const fov = Math.PI * 0.62;
+    const fov = VIEWER_FOV;
     for (const item of viewerElements) {
       const delta = normalizeAngle(Math.atan2(item.y - viewer.camera.y, item.x - viewer.camera.x) - viewer.yaw);
       if (Math.abs(delta) > fov / 2) continue;
@@ -300,6 +610,16 @@ function initViewer() {
         break;
       }
     }
+  });
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if (!["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) return;
+    if (document.querySelector('[data-page="viewer"]')?.hidden) return;
+    event.preventDefault();
+    viewer.keys.add(key);
+  });
+  window.addEventListener("keyup", (event) => {
+    viewer.keys.delete(event.key.toLowerCase());
   });
   drawViewer();
 }
@@ -840,6 +1160,7 @@ function initSimulator() {
 }
 
 function tick(now = 0) {
+  updateViewerMovement(now);
   const t = now / 1000;
   if (running) {
     const key = JSON.stringify(devices.map((d) => [d.type, Math.round(d.x), Math.round(d.y), Math.round((d.angle ?? 0) * 100)]));

@@ -475,6 +475,20 @@ h2 {
   cursor: pointer;
 }
 
+.viewer-help {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin-left: auto;
+  border: 1px solid rgba(225, 163, 95, 0.32);
+  border-radius: 999px;
+  background: rgba(225, 163, 95, 0.12);
+  color: #f8dfbd;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .viewer-side {
   display: grid;
   gap: 14px;
