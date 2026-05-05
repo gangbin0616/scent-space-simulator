@@ -60,8 +60,8 @@ function initHomePlan() {
 const elementInfo = {
   partition: ["가벽", "동선과 향의 흐름을 막는 임시 벽입니다. 시뮬레이션에서도 실제 차단물로 계산됩니다.", "배치형 파티션"],
   fan: ["서큘레이터", "뒤쪽 공기를 흡입하고 앞쪽으로 내보내 향의 이동 방향을 만듭니다.", "흡입/토출 흐름"],
-  heater: ["온열 장치", "주변 확산을 빠르게 만들고 감쇠도 높여 향이 빠르게 퍼졌다 옅어지게 합니다.", "상승 열기"],
-  cooler: ["냉방 장치", "주변 확산을 늦추고 감쇠를 낮춰 향이 천천히 머무는 구역을 만듭니다.", "잔향 유지"],
+  heater: ["온열 장치", "설정 온도와 범위 안에서 향의 확산 속도를 높입니다.", "상승 열기"],
+  cooler: ["냉방 장치", "설정 온도와 범위 안에서 향의 확산 속도를 낮춥니다.", "잔향 유지"],
   route: ["체험 동선", "입구에서 체험존까지의 이동 경로를 기준으로 향의 도착 농도를 확인합니다.", "방문자 흐름"],
   entrance: ["유리문 입구", "성수 쇼룸처럼 외부 빛이 들어오는 투명한 입구 장면입니다.", "워크스루 시작점"],
   mural: ["브랜드 월 이미지", "벽면에 직접 붙은 향수 매장 이미지 패널입니다. 도면 좌표에 맞춰 보이고 가려집니다.", "성수 매장 무드"],
@@ -631,6 +631,7 @@ const simCtx = simCanvas?.getContext("2d");
 const stageButtons = document.querySelector("#stageButtons");
 const toolButtons = document.querySelector("#toolButtons");
 const selectedDeviceEl = document.querySelector("#selectedDevice");
+const deviceSettingsEl = document.querySelector("#deviceSettings");
 const goalScoreEl = document.querySelector("#goalScore");
 const budgetTotalEl = document.querySelector("#budgetTotal");
 const budgetBreakdownEl = document.querySelector("#budgetBreakdown");
@@ -702,10 +703,6 @@ let devices = [
     name: wall.label,
     active: true,
   })),
-  { id: uid("partition"), type: "partition", x: 205, y: 650, angle: -0.35, length: 116, thickness: 9 },
-  { id: uid("fan"), type: "fan", x: 245, y: 690, angle: -1.05 },
-  { id: uid("heater"), type: "heater", x: 170, y: 665 },
-  { id: uid("cooler"), type: "cooler", x: 405, y: 230 },
 ];
 let selectedId = sources[0].id;
 let dragging = null;
@@ -811,6 +808,7 @@ function renderControls() {
 
   const selected = selectedElement();
   selectedDeviceEl.textContent = selected ? `${labelFor(selected.type)} · ${selected.name ?? selected.id} (${Math.round(selected.x)}, ${Math.round(selected.y)})` : "선택 없음";
+  renderDeviceSettings(selected);
   rotateButton.disabled = !selected || !["partition", "fan"].includes(selected.type);
   deleteButton.disabled = !selected || (sources.length <= 1 && selected.type === "source") || (targets.length <= 1 && selected.type === "target");
   if (addSourceButton) addSourceButton.disabled = sources.length >= MAX_POINTS;
@@ -887,7 +885,7 @@ function renderSourceList() {
         <strong>${source.name}</strong>
       </button>
       <label>색상 <input data-field="color" type="color" value="${source.color}" /></label>
-      <label>확산속도 <input data-field="diffusionSpeed" type="range" min="1" max="12" step="0.1" value="${source.diffusionSpeed ?? 6}" /><span>${(source.diffusionSpeed ?? 6).toFixed(1)}</span></label>
+      <label>확산속도 <input data-field="diffusionSpeed" type="range" min="0.1" max="12" step="0.1" value="${source.diffusionSpeed ?? 6}" /><span>${(source.diffusionSpeed ?? 6).toFixed(1)}</span></label>
       <button class="remove-point" type="button" ${sources.length <= 1 ? "disabled" : ""}>삭제</button>
     `;
     card.querySelector(".point-title").addEventListener("click", () => {
@@ -910,6 +908,57 @@ function renderSourceList() {
       renderControls();
     });
     sourceListEl.append(card);
+  });
+}
+
+function thermalDefaults(type) {
+  return type === "heater"
+    ? { temperature: 32, minTemperature: 20, maxTemperature: 45, radius: 125 }
+    : { temperature: 8, minTemperature: -15, maxTemperature: 18, radius: 125 };
+}
+
+function normalizeThermalDevice(device) {
+  if (!device || (device.type !== "heater" && device.type !== "cooler")) return;
+  const defaults = thermalDefaults(device.type);
+  device.minTemperature = defaults.minTemperature;
+  device.maxTemperature = defaults.maxTemperature;
+  device.temperature = clamp(device.temperature ?? defaults.temperature, defaults.minTemperature, defaults.maxTemperature);
+  device.radius = clamp(device.radius ?? defaults.radius, 40, 240);
+}
+
+function renderDeviceSettings(selected) {
+  if (!deviceSettingsEl) return;
+  deviceSettingsEl.innerHTML = "";
+  if (!selected || (selected.type !== "heater" && selected.type !== "cooler")) {
+    deviceSettingsEl.hidden = true;
+    return;
+  }
+  normalizeThermalDevice(selected);
+  deviceSettingsEl.hidden = false;
+  const verb = selected.type === "heater" ? "빠르게" : "느리게";
+  const unit = selected.type === "heater" ? "가열" : "냉각";
+  deviceSettingsEl.innerHTML = `
+    <strong>${labelFor(selected.type)} 설정</strong>
+    <label>
+      <span>온도</span>
+      <input data-device-field="temperature" type="range" min="${selected.minTemperature}" max="${selected.maxTemperature}" step="1" value="${selected.temperature}" />
+      <em>${Math.round(selected.temperature)}℃</em>
+    </label>
+    <label>
+      <span>범위</span>
+      <input data-device-field="radius" type="range" min="40" max="240" step="5" value="${selected.radius}" />
+      <em>${Math.round(selected.radius)}px</em>
+    </label>
+    <p>${unit} 영역 안에서 향이 더 ${verb} 퍼집니다.</p>
+  `;
+  deviceSettingsEl.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const field = input.dataset.deviceField;
+      selected[field] = Number(input.value);
+      normalizeThermalDevice(selected);
+      sim.refreshMask(devices);
+      renderControls();
+    });
   });
 }
 
@@ -1013,6 +1062,7 @@ function placeTool(point) {
   if (!isToolAllowed(activeTool)) return;
   const base = { id: uid(activeTool), type: activeTool, x: p.x, y: p.y, angle: -Math.PI / 4 };
   if (activeTool === "partition") Object.assign(base, { length: 124, thickness: 9, angle: 0 });
+  if (activeTool === "heater" || activeTool === "cooler") Object.assign(base, thermalDefaults(activeTool));
   devices.push(base);
   selectedId = base.id;
   sim.refreshMask(devices);
@@ -1089,26 +1139,64 @@ function drawFanFlow(device, t) {
 }
 
 function drawThermal(device, t) {
+  normalizeThermalDevice(device);
+  const radius = device.radius ?? 125;
+  const heatStrength = device.type === "heater" ? (device.temperature - device.minTemperature) / (device.maxTemperature - device.minTemperature) : 0;
+  const coolStrength = device.type === "cooler" ? (device.maxTemperature - device.temperature) / (device.maxTemperature - device.minTemperature) : 0;
+  const strength = clamp(device.type === "heater" ? heatStrength : coolStrength, 0, 1);
   simCtx.save();
   simCtx.translate(device.x, device.y);
   if (device.type === "heater") {
-    simCtx.strokeStyle = "rgba(182,84,50,0.45)";
-    simCtx.lineWidth = 4;
-    for (let i = 0; i < 5; i += 1) {
-      const x = -28 + i * 14;
-      const lift = (t * 36 + i * 11) % 30;
+    const glow = simCtx.createRadialGradient(0, 0, 14, 0, 0, radius);
+    glow.addColorStop(0, `rgba(216,95,55,${0.16 + strength * 0.16})`);
+    glow.addColorStop(1, "rgba(216,95,55,0)");
+    simCtx.fillStyle = glow;
+    simCtx.beginPath();
+    simCtx.arc(0, 0, radius, 0, Math.PI * 2);
+    simCtx.fill();
+    simCtx.strokeStyle = `rgba(206,78,42,${0.38 + strength * 0.34})`;
+    simCtx.lineWidth = 3 + strength * 3;
+    for (let i = 0; i < 7; i += 1) {
+      const x = -42 + i * 14;
+      const lift = (t * (38 + strength * 70) + i * 11) % 44;
       simCtx.beginPath();
-      simCtx.moveTo(x, 34 - lift);
-      simCtx.bezierCurveTo(x - 14, 8 - lift, x + 14, -10 - lift, x, -48 - lift);
+      simCtx.moveTo(x, 42 - lift);
+      simCtx.bezierCurveTo(x - 16, 10 - lift, x + 16, -14 - lift, x, -64 - lift);
       simCtx.stroke();
     }
+    simCtx.fillStyle = `rgba(255,179,88,${0.28 + strength * 0.42})`;
+    for (let i = 0; i < 14; i += 1) {
+      const angle = i * 1.7 + t * (0.8 + strength);
+      const dist = 34 + ((t * (50 + strength * 80) + i * 17) % Math.max(36, radius - 26));
+      simCtx.beginPath();
+      simCtx.arc(Math.cos(angle) * dist, Math.sin(angle) * dist, 3.5, 0, Math.PI * 2);
+      simCtx.fill();
+    }
   } else {
-    for (let i = 0; i < 3; i += 1) {
-      const r = 58 + ((t * 22 + i * 38) % 84);
-      simCtx.strokeStyle = `rgba(70,126,120,${0.24 - i * 0.04})`;
-      simCtx.lineWidth = 4;
+    const glow = simCtx.createRadialGradient(0, 0, 10, 0, 0, radius);
+    glow.addColorStop(0, `rgba(66,153,170,${0.14 + strength * 0.16})`);
+    glow.addColorStop(1, "rgba(66,153,170,0)");
+    simCtx.fillStyle = glow;
+    simCtx.beginPath();
+    simCtx.arc(0, 0, radius, 0, Math.PI * 2);
+    simCtx.fill();
+    for (let i = 0; i < 4; i += 1) {
+      const r = 34 + ((t * (8 + strength * 18) + i * radius * 0.23) % Math.max(46, radius - 18));
+      simCtx.strokeStyle = `rgba(42,122,146,${0.22 + strength * 0.2 - i * 0.035})`;
+      simCtx.lineWidth = 3 + strength * 2;
       simCtx.beginPath();
       simCtx.arc(0, 0, r, 0, Math.PI * 2);
+      simCtx.stroke();
+    }
+    simCtx.strokeStyle = `rgba(155,228,234,${0.28 + strength * 0.36})`;
+    simCtx.lineWidth = 2;
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (Math.PI * 2 * i) / 8 + t * 0.16;
+      const inner = radius * 0.18;
+      const outer = radius * (0.46 + strength * 0.32);
+      simCtx.beginPath();
+      simCtx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+      simCtx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
       simCtx.stroke();
     }
   }
@@ -1148,15 +1236,23 @@ function drawDevices(t) {
       simCtx.fill();
     }
     if (device.type === "heater" || device.type === "cooler") {
+      normalizeThermalDevice(device);
+      const radius = device.radius ?? 125;
       simCtx.fillStyle = device.type === "heater" ? "#b65432" : "#467e78";
       simCtx.globalAlpha = selected ? 1 : 0.88;
       simCtx.beginPath();
       simCtx.arc(0, 0, 22, 0, Math.PI * 2);
       simCtx.fill();
-      simCtx.globalAlpha = 0.16;
+      simCtx.globalAlpha = selected ? 0.24 : 0.12;
       simCtx.beginPath();
-      simCtx.arc(0, 0, 122, 0, Math.PI * 2);
+      simCtx.arc(0, 0, radius, 0, Math.PI * 2);
       simCtx.fill();
+      simCtx.globalAlpha = 1;
+      simCtx.fillStyle = "#fffaf2";
+      simCtx.font = "900 12px Pretendard, sans-serif";
+      simCtx.textAlign = "center";
+      simCtx.textBaseline = "middle";
+      simCtx.fillText(`${Math.round(device.temperature)}℃`, 0, 1);
     }
     simCtx.restore();
   }

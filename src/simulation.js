@@ -47,12 +47,17 @@ function thermalModifiers(px, py, devices = []) {
   for (const device of devices) {
     if (device.type !== "heater" && device.type !== "cooler") continue;
     const distance = Math.hypot(px - device.x, py - device.y);
-    if (distance > 125) continue;
-    const influence = 1 - distance / 125;
+    const radius = Math.max(40, Math.min(240, device.radius ?? 125));
+    if (distance > radius) continue;
+    const influence = 1 - distance / radius;
     if (device.type === "heater") {
-      diffusion += influence * 0.7;
+      const temperature = Math.max(20, Math.min(45, device.temperature ?? 32));
+      const strength = (temperature - 20) / 25;
+      diffusion += influence * (0.28 + strength * 1.22);
     } else {
-      diffusion -= influence * 0.5;
+      const temperature = Math.max(-15, Math.min(18, device.temperature ?? 8));
+      const strength = (18 - temperature) / 33;
+      diffusion -= influence * (0.18 + strength * 0.72);
     }
   }
   return {
@@ -174,8 +179,7 @@ export function createSimulation() {
     ensureField(source);
     const field = fields.get(source.id);
     const cell = toCell(source);
-    const speed = source.diffusionSpeed ?? source.emission ?? 5;
-    const emission = speed * 9.5;
+    const emission = 68;
     for (let y = cell.y - 5; y <= cell.y + 5; y += 1) {
       for (let x = cell.x - 5; x <= cell.x + 5; x += 1) {
         if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
@@ -197,9 +201,9 @@ export function createSimulation() {
       const field = fields.get(scent.id);
       const buffer = buffers.get(scent.id);
       buffer.fill(0);
-      const speed = Math.max(1, scent.diffusionSpeed ?? scent.spread ?? 6);
-      const baseSpread = Math.max(0.45, speed / 4.2);
-      const baseDecay = Math.max(0.0002, 0.0022 / speed);
+      const speed = Math.max(0.1, scent.diffusionSpeed ?? scent.spread ?? 6);
+      const baseSpread = Math.max(0.12, 0.08 + speed / 5.2);
+      const baseDecay = 0.00002;
 
       for (let y = 2; y < GRID_H - 2; y += 1) {
         for (let x = 2; x < GRID_W - 2; x += 1) {
