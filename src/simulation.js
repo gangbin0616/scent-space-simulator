@@ -81,6 +81,27 @@ function thermalModifiers(px, py, gx, gy, devices = [], mask = null) {
   };
 }
 
+function thermalCellEffect(px, py, gx, gy, devices = [], mask = null) {
+  let heat = 0;
+  let cool = 0;
+  for (const device of devices) {
+    if (device.type !== "heater" && device.type !== "cooler") continue;
+    const distance = Math.hypot(px - device.x, py - device.y);
+    const radius = Math.max(40, Math.min(240, device.radius ?? 125));
+    if (distance > radius) continue;
+    if (mask && !gridLineClear(mask, toCell(device), gx, gy)) continue;
+    const influence = 1 - distance / radius;
+    if (device.type === "heater") {
+      const temperature = Math.max(20, Math.min(45, device.temperature ?? 32));
+      heat = Math.max(heat, influence * ((temperature - 20) / 25));
+    } else {
+      const temperature = Math.max(-15, Math.min(18, device.temperature ?? 8));
+      cool = Math.max(cool, influence * ((18 - temperature) / 33));
+    }
+  }
+  return { heat, cool };
+}
+
 function transfer(field, next, mask, fromX, fromY, toX, toY, amount) {
   if (amount <= 0) return;
   if (toX < 0 || toY < 0 || toX >= GRID_W || toY >= GRID_H) return;
@@ -303,7 +324,7 @@ export function createSimulation() {
     return total;
   }
 
-  function draw(ctx, sources = []) {
+  function draw(ctx, sources = [], devices = []) {
     ensureFields(sources);
     ctx.save();
     ctx.globalCompositeOperation = "source-over";
@@ -317,7 +338,24 @@ export function createSimulation() {
           const value = field[idx];
           if (value < 0.002 || !mask[idx]) continue;
           const alpha = Math.min(0.74, 0.08 + value * 0.22);
-          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+          const p = cellCenter(x, y);
+          const thermal = thermalCellEffect(p.x, p.y, x, y, devices, mask);
+          const heatMix = Math.min(0.65, thermal.heat * 0.62);
+          const coolMix = Math.min(0.65, thermal.cool * 0.62);
+          let r = rgb.r;
+          let g = rgb.g;
+          let b = rgb.b;
+          if (heatMix > coolMix) {
+            r = Math.round(r * (1 - heatMix) + 255 * heatMix);
+            g = Math.round(g * (1 - heatMix) + 118 * heatMix);
+            b = Math.round(b * (1 - heatMix) + 48 * heatMix);
+          } else if (coolMix > 0) {
+            r = Math.round(r * (1 - coolMix) + 54 * coolMix);
+            g = Math.round(g * (1 - coolMix) + 206 * coolMix);
+            b = Math.round(b * (1 - coolMix) + 220 * coolMix);
+          }
+          const thermalAlpha = Math.min(0.18, Math.max(thermal.heat, thermal.cool) * 0.16);
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha + thermalAlpha})`;
           ctx.fillRect(x * CELL, y * CELL, CELL + 1, CELL + 1);
         }
       }

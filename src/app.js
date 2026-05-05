@@ -1150,9 +1150,39 @@ function thermalLineClear(device, x, y) {
   return true;
 }
 
+let thermalInfluenceCache = null;
+
+function thermalPointInfluence(device, x, y, radius = device.radius ?? 125) {
+  const cacheKey = thermalInfluenceCache ? `${Math.round(x)},${Math.round(y)},${Math.round(radius)}` : null;
+  if (cacheKey && thermalInfluenceCache.has(cacheKey)) return thermalInfluenceCache.get(cacheKey);
+  const distance = Math.hypot(x - device.x, y - device.y);
+  let influence = 0;
+  if (distance <= radius && isWalkable(x, y, devices) && thermalLineClear(device, x, y)) influence = 1 - distance / radius;
+  if (cacheKey) thermalInfluenceCache.set(cacheKey, influence);
+  return influence;
+}
+
+function thermalPalette(device) {
+  return device.type === "heater"
+    ? {
+        core: "216,95,55",
+        edge: "255,164,78",
+        line: "190,64,35",
+        label: "#b65432",
+        halo: "255,197,111",
+      }
+    : {
+        core: "42,153,176",
+        edge: "134,226,232",
+        line: "31,108,136",
+        label: "#2f7f8f",
+        halo: "169,236,240",
+      };
+}
+
 function drawThermalArea(device, radius, strength) {
-  const step = 18;
-  const color = device.type === "heater" ? "216,95,55" : "66,153,170";
+  const step = 12;
+  const palette = thermalPalette(device);
   const left = Math.max(0, device.x - radius);
   const right = Math.min(PLAN_WIDTH, device.x + radius);
   const top = Math.max(0, device.y - radius);
@@ -1160,12 +1190,47 @@ function drawThermalArea(device, radius, strength) {
   simCtx.save();
   for (let y = top; y <= bottom; y += step) {
     for (let x = left; x <= right; x += step) {
-      const distance = Math.hypot(x - device.x, y - device.y);
-      if (distance > radius) continue;
-      if (!isWalkable(x, y, devices) || !thermalLineClear(device, x, y)) continue;
-      const influence = 1 - distance / radius;
-      simCtx.fillStyle = `rgba(${color},${(0.035 + strength * 0.09) * influence})`;
-      simCtx.fillRect(x - step * 0.55, y - step * 0.55, step * 1.1, step * 1.1);
+      const influence = thermalPointInfluence(device, x, y, radius);
+      if (!influence) continue;
+      const alpha = (0.06 + strength * 0.16) * Math.pow(influence, 0.72);
+      const size = step * (0.76 + influence * 0.32);
+      simCtx.fillStyle = `rgba(${palette.core},${alpha})`;
+      simCtx.fillRect(x - size * 0.5, y - size * 0.5, size, size);
+
+      const edgeAhead =
+        !thermalPointInfluence(device, x + step, y, radius) ||
+        !thermalPointInfluence(device, x - step, y, radius) ||
+        !thermalPointInfluence(device, x, y + step, radius) ||
+        !thermalPointInfluence(device, x, y - step, radius);
+      if (edgeAhead) {
+        simCtx.strokeStyle = `rgba(${palette.edge},${0.22 + strength * 0.32})`;
+        simCtx.lineWidth = 2;
+        simCtx.beginPath();
+        simCtx.arc(x, y, step * 0.42, 0, Math.PI * 2);
+        simCtx.stroke();
+      }
+    }
+  }
+
+  simCtx.strokeStyle = `rgba(${palette.line},${0.26 + strength * 0.28})`;
+  simCtx.lineWidth = 1.5;
+  simCtx.setLineDash([5, 7]);
+  for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 30) {
+    let previous = null;
+    for (let dist = 18; dist <= radius; dist += 7) {
+      const x = device.x + Math.cos(angle) * dist;
+      const y = device.y + Math.sin(angle) * dist;
+      if (!thermalPointInfluence(device, x, y, radius)) {
+        previous = null;
+        continue;
+      }
+      if (previous) {
+        simCtx.beginPath();
+        simCtx.moveTo(previous.x, previous.y);
+        simCtx.lineTo(x, y);
+        simCtx.stroke();
+      }
+      previous = { x, y };
     }
   }
   simCtx.restore();
@@ -1173,10 +1238,12 @@ function drawThermalArea(device, radius, strength) {
 
 function drawThermal(device, t) {
   normalizeThermalDevice(device);
+  thermalInfluenceCache = new Map();
   const radius = device.radius ?? 125;
   const heatStrength = device.type === "heater" ? (device.temperature - device.minTemperature) / (device.maxTemperature - device.minTemperature) : 0;
   const coolStrength = device.type === "cooler" ? (device.maxTemperature - device.temperature) / (device.maxTemperature - device.minTemperature) : 0;
   const strength = clamp(device.type === "heater" ? heatStrength : coolStrength, 0, 1);
+  const palette = thermalPalette(device);
   drawThermalArea(device, radius, strength);
   simCtx.save();
   simCtx.translate(device.x, device.y);
@@ -1192,35 +1259,47 @@ function drawThermal(device, t) {
       simCtx.stroke();
     }
     simCtx.fillStyle = `rgba(255,179,88,${0.28 + strength * 0.42})`;
-    for (let i = 0; i < 14; i += 1) {
+    for (let i = 0; i < 22; i += 1) {
       const angle = i * 1.7 + t * (0.8 + strength);
       const dist = 34 + ((t * (50 + strength * 80) + i * 17) % Math.max(36, radius - 26));
+      const x = Math.cos(angle) * dist;
+      const y = Math.sin(angle) * dist;
+      if (!thermalPointInfluence(device, device.x + x, device.y + y, radius)) continue;
       simCtx.beginPath();
-      simCtx.arc(Math.cos(angle) * dist, Math.sin(angle) * dist, 3.5, 0, Math.PI * 2);
+      simCtx.arc(x, y, 3.5, 0, Math.PI * 2);
       simCtx.fill();
     }
   } else {
-    for (let i = 0; i < 4; i += 1) {
-      const r = 34 + ((t * (8 + strength * 18) + i * radius * 0.23) % Math.max(46, radius - 18));
-      simCtx.strokeStyle = `rgba(42,122,146,${0.22 + strength * 0.2 - i * 0.035})`;
-      simCtx.lineWidth = 3 + strength * 2;
-      simCtx.beginPath();
-      simCtx.arc(0, 0, r, 0, Math.PI * 2);
-      simCtx.stroke();
-    }
     simCtx.strokeStyle = `rgba(155,228,234,${0.28 + strength * 0.36})`;
     simCtx.lineWidth = 2;
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (Math.PI * 2 * i) / 8 + t * 0.16;
-      const inner = radius * 0.18;
-      const outer = radius * (0.46 + strength * 0.32);
-      simCtx.beginPath();
-      simCtx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
-      simCtx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
-      simCtx.stroke();
+    for (let i = 0; i < 13; i += 1) {
+      const angle = (Math.PI * 2 * i) / 13 + t * 0.16;
+      let previous = null;
+      for (let dist = radius * 0.16; dist < radius * (0.5 + strength * 0.34); dist += 9) {
+        const x = Math.cos(angle) * dist;
+        const y = Math.sin(angle) * dist;
+        if (!thermalPointInfluence(device, device.x + x, device.y + y, radius)) {
+          previous = null;
+          continue;
+        }
+        if (previous) {
+          simCtx.beginPath();
+          simCtx.moveTo(previous.x, previous.y);
+          simCtx.lineTo(x, y);
+          simCtx.stroke();
+        }
+        previous = { x, y };
+      }
     }
   }
+  simCtx.strokeStyle = `rgba(${palette.halo},${0.45 + strength * 0.28})`;
+  simCtx.lineWidth = 4;
+  simCtx.setLineDash([10, 8]);
+  simCtx.beginPath();
+  simCtx.arc(0, 0, 31, 0, Math.PI * 2);
+  simCtx.stroke();
   simCtx.restore();
+  thermalInfluenceCache = null;
 }
 
 function drawDevices(t) {
@@ -1257,18 +1336,21 @@ function drawDevices(t) {
     }
     if (device.type === "heater" || device.type === "cooler") {
       normalizeThermalDevice(device);
-      const radius = device.radius ?? 125;
-      simCtx.fillStyle = device.type === "heater" ? "#b65432" : "#467e78";
+      const palette = thermalPalette(device);
+      simCtx.fillStyle = selected ? "#e1a35f" : palette.label;
       simCtx.globalAlpha = selected ? 1 : 0.88;
       simCtx.beginPath();
-      simCtx.arc(0, 0, 22, 0, Math.PI * 2);
+      simCtx.roundRect(-28, -22, 56, 44, 10);
       simCtx.fill();
       simCtx.globalAlpha = 1;
+      simCtx.strokeStyle = `rgba(${palette.halo},0.72)`;
+      simCtx.lineWidth = selected ? 5 : 3;
+      simCtx.stroke();
       simCtx.fillStyle = "#fffaf2";
-      simCtx.font = "900 12px Pretendard, sans-serif";
+      simCtx.font = "900 11px Pretendard, sans-serif";
       simCtx.textAlign = "center";
       simCtx.textBaseline = "middle";
-      simCtx.fillText(`${Math.round(device.temperature)}℃`, 0, 1);
+      simCtx.fillText(`${Math.round(device.temperature)}C`, 0, 1);
     }
     simCtx.restore();
   }
@@ -1402,7 +1484,7 @@ function tick(now = 0) {
   if (simCtx) {
     drawFloorPlan(simCtx, devices);
     drawGrid();
-    sim.draw(simCtx, sources);
+    sim.draw(simCtx, sources, devices);
     drawDevices(t);
     const totals = targets.map((target) => {
       const result = sim.sampleTarget(target, sources);
