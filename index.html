@@ -145,6 +145,11 @@
                   <span>평균 농도</span>
                   <strong id="goalScore">0%</strong>
                 </div>
+                <label class="threshold-control">
+                  <span>성공 기준</span>
+                  <input id="successThreshold" type="range" min="5" max="100" step="1" value="35" />
+                  <strong id="successThresholdValue">35%</strong>
+                </label>
                 <div class="goal-meter">
                   <span>경과 시간</span>
                   <strong id="simTimer">0.0초</strong>
@@ -160,7 +165,12 @@
             <div class="canvas-wrap">
               <div class="map-toolbar">
                 <strong>설계도 맵</strong>
-                <span>드래그로 배치 · 토글로 가벽 활성/비활성</span>
+                <div class="map-status-strip" aria-label="시뮬레이션 상태">
+                  <span>평균 <b id="mapGoalScore">0%</b></span>
+                  <span>시간 <b id="mapTimer">0.0초</b></span>
+                  <span>예산 <b id="mapBudgetTotal">0만원</b></span>
+                  <strong id="mapSuccessState">대기</strong>
+                </div>
               </div>
               <canvas id="simCanvas" width="744" height="960" aria-label="향수 팝업 스토어 도면 시뮬레이션"></canvas>
             </div>

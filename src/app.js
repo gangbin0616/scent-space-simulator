@@ -11,15 +11,14 @@ import {
 import { createSimulation } from "./simulation.js";
 
 const MAX_POINTS = 10;
-const TARGET_THRESHOLD = 0.018;
 const TARGET_TIME_LIMIT = 15;
 
 const scentPresets = [
-  { name: "Citrus Opening", color: "#d85f37", emission: 6.8, spread: 1.55, decay: 0.0014 },
-  { name: "Floral Heart", color: "#c45d8f", emission: 5.8, spread: 1.42, decay: 0.0012 },
-  { name: "Woody Base", color: "#7b4f35", emission: 4.9, spread: 1.24, decay: 0.001 },
-  { name: "Musk Trail", color: "#6f7890", emission: 4.4, spread: 1.16, decay: 0.0008 },
-  { name: "Green Mist", color: "#4f8f6a", emission: 5.4, spread: 1.5, decay: 0.0011 },
+  { name: "Citrus Opening", color: "#d85f37", diffusionSpeed: 7.2 },
+  { name: "Floral Heart", color: "#c45d8f", diffusionSpeed: 6.4 },
+  { name: "Woody Base", color: "#7b4f35", diffusionSpeed: 5.6 },
+  { name: "Musk Trail", color: "#6f7890", diffusionSpeed: 5.1 },
+  { name: "Green Mist", color: "#4f8f6a", diffusionSpeed: 6.8 },
 ];
 
 const pages = [...document.querySelectorAll("[data-page]")];
@@ -636,6 +635,12 @@ const goalScoreEl = document.querySelector("#goalScore");
 const budgetTotalEl = document.querySelector("#budgetTotal");
 const budgetBreakdownEl = document.querySelector("#budgetBreakdown");
 const simTimerEl = document.querySelector("#simTimer");
+const successThresholdInput = document.querySelector("#successThreshold");
+const successThresholdValueEl = document.querySelector("#successThresholdValue");
+const mapGoalScoreEl = document.querySelector("#mapGoalScore");
+const mapTimerEl = document.querySelector("#mapTimer");
+const mapBudgetTotalEl = document.querySelector("#mapBudgetTotal");
+const mapSuccessStateEl = document.querySelector("#mapSuccessState");
 const rotateButton = document.querySelector("#rotateButton");
 const deleteButton = document.querySelector("#deleteButton");
 const toggleRunButton = document.querySelector("#toggleRun");
@@ -668,6 +673,8 @@ let activeTool = "source";
 let running = true;
 let simElapsed = 0;
 let lastTickAt = 0;
+let latestAverage = 0;
+let successThresholdPercent = 35;
 let sources = [
   {
     id: "source-1",
@@ -755,9 +762,7 @@ function createSourceAt(point) {
     y: point.y,
     name: `${preset.name} ${sources.length + 1}`,
     color: preset.color,
-    emission: preset.emission,
-    spread: preset.spread,
-    decay: preset.decay,
+    diffusionSpeed: preset.diffusionSpeed,
   };
   sources = [...sources, source];
   sim.ensureFields(sources);
@@ -814,6 +819,7 @@ function renderControls() {
   renderTargetList();
   renderFloorplanWallList();
   renderBudget();
+  renderSimulationStatus(latestAverage);
 }
 
 function renderBudget() {
@@ -824,7 +830,31 @@ function renderBudget() {
   const thermal = devices.filter((device) => device.type === "heater" || device.type === "cooler").length;
   const total = userPartitions * 100 + removedFloorplanWalls * 10 + fans * 10 + thermal * 20;
   budgetTotalEl.textContent = `${total.toLocaleString("ko-KR")}만원`;
+  if (mapBudgetTotalEl) mapBudgetTotalEl.textContent = `${total.toLocaleString("ko-KR")}만원`;
   if (budgetBreakdownEl) budgetBreakdownEl.textContent = `가벽 설치 ${userPartitions}개 · 가벽 제거 ${removedFloorplanWalls}개 · 서큘레이터 ${fans}개 · 공조기 ${thermal}개`;
+}
+
+function successThresholdValue() {
+  return successThresholdPercent / 42;
+}
+
+function renderSimulationStatus(average = latestAverage) {
+  latestAverage = average;
+  const averagePct = pct(average);
+  const failed = average < successThresholdValue() && simElapsed > TARGET_TIME_LIMIT;
+  const success = average >= successThresholdValue();
+  const stateText = success ? "성공" : failed ? "실패" : "진행";
+  const stateClass = success ? "is-success" : failed ? "is-fail" : "";
+  if (goalScoreEl) goalScoreEl.textContent = averagePct;
+  if (mapGoalScoreEl) mapGoalScoreEl.textContent = averagePct;
+  if (simTimerEl) simTimerEl.textContent = `${simElapsed.toFixed(1)}초`;
+  if (mapTimerEl) mapTimerEl.textContent = `${simElapsed.toFixed(1)}초`;
+  if (successThresholdValueEl) successThresholdValueEl.textContent = `${successThresholdPercent}%`;
+  if (successThresholdInput) successThresholdInput.value = String(successThresholdPercent);
+  if (mapSuccessStateEl) {
+    mapSuccessStateEl.textContent = stateText;
+    mapSuccessStateEl.className = stateClass;
+  }
 }
 
 function renderFloorplanWallList() {
@@ -857,9 +887,7 @@ function renderSourceList() {
         <strong>${source.name}</strong>
       </button>
       <label>색상 <input data-field="color" type="color" value="${source.color}" /></label>
-      <label>발향량 <input data-field="emission" type="range" min="0.5" max="12" step="0.1" value="${source.emission}" /><span>${source.emission.toFixed(1)}</span></label>
-      <label>퍼짐 <input data-field="spread" type="range" min="0.5" max="3" step="0.05" value="${source.spread}" /><span>${source.spread.toFixed(2)}</span></label>
-      <label>감쇠 <input data-field="decay" type="range" min="0.0001" max="0.01" step="0.0001" value="${source.decay}" /><span>${source.decay.toFixed(4)}</span></label>
+      <label>확산속도 <input data-field="diffusionSpeed" type="range" min="1" max="12" step="0.1" value="${source.diffusionSpeed ?? 6}" /><span>${(source.diffusionSpeed ?? 6).toFixed(1)}</span></label>
       <button class="remove-point" type="button" ${sources.length <= 1 ? "disabled" : ""}>삭제</button>
     `;
     card.querySelector(".point-title").addEventListener("click", () => {
@@ -871,6 +899,7 @@ function renderSourceList() {
       input.addEventListener("input", () => {
         const field = input.dataset.field;
         source[field] = field === "color" ? input.value : Number(input.value);
+        if (field === "diffusionSpeed") resetScentState();
         renderControls();
       });
     });
@@ -1204,6 +1233,14 @@ function initSimulator() {
     resetScentState();
     renderControls();
   });
+  successThresholdInput?.addEventListener("input", (event) => {
+    successThresholdPercent = Number(event.currentTarget.value);
+    targets.forEach((target) => {
+      target.reachedAt = null;
+    });
+    renderSimulationStatus(latestAverage);
+    renderTargetList();
+  });
   clearDevicesButton?.addEventListener("click", () => {
     devices = devices.filter((device) => device.type === "floorplan-wall-toggle");
     devices.forEach((device) => {
@@ -1256,12 +1293,11 @@ function tick(now = 0) {
     drawDevices(t);
     const totals = targets.map((target) => {
       const result = sim.sampleTarget(target, sources);
-      if ((target.reachedAt === null || target.reachedAt === undefined) && result.total >= TARGET_THRESHOLD) target.reachedAt = simElapsed;
+      if ((target.reachedAt === null || target.reachedAt === undefined) && result.total >= successThresholdValue()) target.reachedAt = simElapsed;
       return result.total;
     });
     const average = totals.length ? totals.reduce((sum, value) => sum + value, 0) / totals.length : 0;
-    goalScoreEl.textContent = pct(average);
-    if (simTimerEl) simTimerEl.textContent = `${simElapsed.toFixed(1)}초`;
+    renderSimulationStatus(average);
     renderBudget();
     if (Math.floor(now / 500) !== Math.floor((now - 16) / 500)) renderTargetList();
   }

@@ -174,7 +174,8 @@ export function createSimulation() {
     ensureField(source);
     const field = fields.get(source.id);
     const cell = toCell(source);
-    const emission = (source.emission ?? 5) * 8.5;
+    const speed = source.diffusionSpeed ?? source.emission ?? 5;
+    const emission = speed * 9.5;
     for (let y = cell.y - 5; y <= cell.y + 5; y += 1) {
       for (let x = cell.x - 5; x <= cell.x + 5; x += 1) {
         if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
@@ -196,8 +197,9 @@ export function createSimulation() {
       const field = fields.get(scent.id);
       const buffer = buffers.get(scent.id);
       buffer.fill(0);
-      const baseSpread = Math.max(0.2, scent.spread ?? 1);
-      const baseDecay = Math.max(0, scent.decay ?? 0.005);
+      const speed = Math.max(1, scent.diffusionSpeed ?? scent.spread ?? 6);
+      const baseSpread = Math.max(0.45, speed / 4.2);
+      const baseDecay = Math.max(0.0002, 0.0022 / speed);
 
       for (let y = 2; y < GRID_H - 2; y += 1) {
         for (let x = 2; x < GRID_W - 2; x += 1) {

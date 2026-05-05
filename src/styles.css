@@ -913,6 +913,27 @@ button:disabled {
   color: var(--accent);
 }
 
+.threshold-control {
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.threshold-control input {
+  width: 100%;
+}
+
+.threshold-control strong {
+  color: var(--accent);
+}
+
 .budget-breakdown {
   margin: 8px 0 0;
   color: var(--muted);
@@ -937,7 +958,7 @@ button:disabled {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 44px 12px 12px;
+  padding: 60px 12px 12px;
 }
 
 .map-toolbar {
@@ -964,6 +985,54 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.map-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.map-status-strip span,
+.map-status-strip > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  border: 1px solid #e3d3c0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.map-status-strip b {
+  color: var(--ink);
+}
+
+.map-status-strip > strong {
+  min-width: 54px;
+  justify-content: center;
+  border-color: #d8c4ad;
+  color: var(--accent);
+}
+
+.map-status-strip > strong.is-success {
+  border-color: rgba(79, 143, 106, 0.35);
+  background: rgba(79, 143, 106, 0.13);
+  color: #2f6f49;
+}
+
+.map-status-strip > strong.is-fail {
+  border-color: rgba(159, 58, 46, 0.35);
+  background: rgba(159, 58, 46, 0.12);
+  color: #9f3a2e;
 }
 
 .canvas-wrap canvas {
