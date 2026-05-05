@@ -6,10 +6,14 @@ export const GRID_H = Math.floor(PLAN_HEIGHT / CELL);
 export const GRID_SIZE = GRID_W * GRID_H;
 
 const dirs = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
+  { dx: 1, dy: 0, mx: 1, my: 0 },
+  { dx: -1, dy: 0, mx: -1, my: 0 },
+  { dx: 0, dy: 1, mx: 0, my: 1 },
+  { dx: 0, dy: -1, mx: 0, my: -1 },
+  { dx: 2, dy: 0, mx: 1, my: 0 },
+  { dx: -2, dy: 0, mx: -1, my: 0 },
+  { dx: 0, dy: 2, mx: 0, my: 1 },
+  { dx: 0, dy: -2, mx: 0, my: -1 },
 ];
 
 export function gridIndex(x, y) {
@@ -46,13 +50,13 @@ function thermalModifiers(px, py, devices = []) {
     if (distance > 125) continue;
     const influence = 1 - distance / 125;
     if (device.type === "heater") {
-      diffusion += influence * 0.55;
+      diffusion += influence * 0.7;
     } else {
-      diffusion -= influence * 0.42;
+      diffusion -= influence * 0.5;
     }
   }
   return {
-    diffusion: Math.max(0.12, diffusion),
+    diffusion: Math.max(0.08, diffusion),
     decay: 1,
   };
 }
@@ -170,14 +174,14 @@ export function createSimulation() {
     ensureField(source);
     const field = fields.get(source.id);
     const cell = toCell(source);
-    const emission = (source.emission ?? 1.3) * 1.9;
-    for (let y = cell.y - 3; y <= cell.y + 3; y += 1) {
-      for (let x = cell.x - 3; x <= cell.x + 3; x += 1) {
+    const emission = (source.emission ?? 5) * 8.5;
+    for (let y = cell.y - 5; y <= cell.y + 5; y += 1) {
+      for (let x = cell.x - 5; x <= cell.x + 5; x += 1) {
         if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
         const idx = gridIndex(x, y);
         if (!mask[idx]) continue;
         const distance = Math.hypot(x - cell.x, y - cell.y);
-        field[idx] = Math.min(28, field[idx] + emission / (1 + distance * 0.72));
+        field[idx] = Math.min(220, field[idx] + emission / (1 + distance * 0.42));
       }
     }
   }
@@ -195,32 +199,33 @@ export function createSimulation() {
       const baseSpread = Math.max(0.2, scent.spread ?? 1);
       const baseDecay = Math.max(0, scent.decay ?? 0.005);
 
-      for (let y = 1; y < GRID_H - 1; y += 1) {
-        for (let x = 1; x < GRID_W - 1; x += 1) {
+      for (let y = 2; y < GRID_H - 2; y += 1) {
+        for (let x = 2; x < GRID_W - 2; x += 1) {
           const idx = gridIndex(x, y);
           if (!mask[idx]) continue;
           const value = field[idx];
           if (value <= 0.000001) continue;
           const p = cellCenter(x, y);
           const temp = thermalModifiers(p.x, p.y, devices);
-          const diffusion = Math.min(0.58, 0.24 * baseSpread * temp.diffusion);
-          const decay = Math.min(0.025, baseDecay * temp.decay);
-          const retained = value * Math.max(0.38, 1 - diffusion - decay);
+          const diffusion = Math.min(0.88, 0.34 * baseSpread * temp.diffusion);
+          const decay = Math.min(0.012, baseDecay * temp.decay);
+          const retained = value * Math.max(0.1, 1 - diffusion - decay);
           buffer[idx] += retained;
 
           const share = value * diffusion;
           let exits = 0;
-          for (const [dx, dy] of dirs) {
-            if (mask[gridIndex(x + dx, y + dy)]) exits += 1;
+          for (const dir of dirs) {
+            if (mask[gridIndex(x + dir.mx, y + dir.my)] && mask[gridIndex(x + dir.dx, y + dir.dy)]) exits += 1;
           }
           if (exits === 0) {
             buffer[idx] += share;
             continue;
           }
           const perNeighbor = share / exits;
-          for (const [dx, dy] of dirs) {
-            const to = gridIndex(x + dx, y + dy);
-            if (mask[to]) buffer[to] += perNeighbor;
+          for (const dir of dirs) {
+            const mid = gridIndex(x + dir.mx, y + dir.my);
+            const to = gridIndex(x + dir.dx, y + dir.dy);
+            if (mask[mid] && mask[to]) buffer[to] += perNeighbor;
           }
         }
       }
@@ -289,8 +294,8 @@ export function createSimulation() {
         for (let x = 0; x < GRID_W; x += 1) {
           const idx = gridIndex(x, y);
           const value = field[idx];
-          if (value < 0.012 || !mask[idx]) continue;
-          const alpha = Math.min(0.52, value * 0.13);
+          if (value < 0.002 || !mask[idx]) continue;
+          const alpha = Math.min(0.74, 0.08 + value * 0.22);
           ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
           ctx.fillRect(x * CELL, y * CELL, CELL + 1, CELL + 1);
         }

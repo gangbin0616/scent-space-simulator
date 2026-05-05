@@ -15,11 +15,11 @@ const TARGET_THRESHOLD = 0.018;
 const TARGET_TIME_LIMIT = 15;
 
 const scentPresets = [
-  { name: "Citrus Opening", color: "#d85f37", emission: 1.7, spread: 1.12, decay: 0.007 },
-  { name: "Floral Heart", color: "#c45d8f", emission: 1.35, spread: 0.96, decay: 0.005 },
-  { name: "Woody Base", color: "#7b4f35", emission: 1.05, spread: 0.78, decay: 0.003 },
-  { name: "Musk Trail", color: "#6f7890", emission: 0.9, spread: 0.68, decay: 0.0025 },
-  { name: "Green Mist", color: "#4f8f6a", emission: 1.2, spread: 1.05, decay: 0.0055 },
+  { name: "Citrus Opening", color: "#d85f37", emission: 6.8, spread: 1.55, decay: 0.0014 },
+  { name: "Floral Heart", color: "#c45d8f", emission: 5.8, spread: 1.42, decay: 0.0012 },
+  { name: "Woody Base", color: "#7b4f35", emission: 4.9, spread: 1.24, decay: 0.001 },
+  { name: "Musk Trail", color: "#6f7890", emission: 4.4, spread: 1.16, decay: 0.0008 },
+  { name: "Green Mist", color: "#4f8f6a", emission: 5.4, spread: 1.5, decay: 0.0011 },
 ];
 
 const pages = [...document.querySelectorAll("[data-page]")];
@@ -857,9 +857,9 @@ function renderSourceList() {
         <strong>${source.name}</strong>
       </button>
       <label>색상 <input data-field="color" type="color" value="${source.color}" /></label>
-      <label>발향량 <input data-field="emission" type="range" min="0.2" max="3" step="0.05" value="${source.emission}" /><span>${source.emission.toFixed(2)}</span></label>
-      <label>퍼짐 <input data-field="spread" type="range" min="0.25" max="1.8" step="0.05" value="${source.spread}" /><span>${source.spread.toFixed(2)}</span></label>
-      <label>감쇠 <input data-field="decay" type="range" min="0.001" max="0.018" step="0.0005" value="${source.decay}" /><span>${source.decay.toFixed(4)}</span></label>
+      <label>발향량 <input data-field="emission" type="range" min="0.5" max="12" step="0.1" value="${source.emission}" /><span>${source.emission.toFixed(1)}</span></label>
+      <label>퍼짐 <input data-field="spread" type="range" min="0.5" max="3" step="0.05" value="${source.spread}" /><span>${source.spread.toFixed(2)}</span></label>
+      <label>감쇠 <input data-field="decay" type="range" min="0.0001" max="0.01" step="0.0001" value="${source.decay}" /><span>${source.decay.toFixed(4)}</span></label>
       <button class="remove-point" type="button" ${sources.length <= 1 ? "disabled" : ""}>삭제</button>
     `;
     card.querySelector(".point-title").addEventListener("click", () => {
@@ -1247,7 +1247,7 @@ function tick(now = 0) {
       sim.refreshMask(devices);
       lastMaskKey = key;
     }
-    for (let i = 0; i < 2; i += 1) sim.step({ sources, devices });
+    for (let i = 0; i < 8; i += 1) sim.step({ sources, devices });
   }
   if (simCtx) {
     drawFloorPlan(simCtx, devices);

@@ -26,23 +26,20 @@ export const wallSegmentDefs = [
   { id: "outer-lower-room-top", line: [480, 725, 680, 725] },
   { id: "toggle-main-l-horizontal", line: [276, 413, 364, 413], toggleable: true, label: "메인 ㄱ자 가로 가벽" },
   { id: "toggle-main-long-vertical", line: [360, 413, 360, 902], toggleable: true, label: "메인 긴 세로 가벽" },
-  { id: "toggle-right-gap-upper", line: [480, 186, 480, 222], toggleable: true, label: "우측 세로벽 상단 조각" },
-  { id: "toggle-right-gap-lower", line: [480, 286, 480, 318], toggleable: true, label: "우측 세로벽 하단 조각" },
+  { id: "right-gap-upper", line: [480, 186, 480, 222] },
+  { id: "right-gap-lower", line: [480, 286, 480, 318] },
 ];
 
 export const wallSegments = wallSegmentDefs.map((item) => item.line);
 
 export const curvedWalls = [
-  { id: "toggle-main-curved-wall", cx: 263, cy: 716, r: 191, start: 2.99, end: 4.63, thickness: 17, role: "main-curved-wall", toggleable: true, label: "좌측 곡선 가벽" },
-  { id: "toggle-short-lower-arc", cx: 252, cy: 716, r: 158, start: 3.18, end: 3.38, thickness: 8, role: "short-lower-arc", toggleable: true, label: "하단 곡선 조각" },
-  { id: "toggle-short-middle-arc", cx: 252, cy: 716, r: 158, start: 3.62, end: 3.82, thickness: 9, role: "short-middle-arc", toggleable: true, label: "중단 곡선 조각" },
-  { id: "toggle-short-upper-arc", cx: 252, cy: 716, r: 158, start: 4.08, end: 4.28, thickness: 9, role: "short-upper-arc", toggleable: true, label: "상단 곡선 조각" },
-  { id: "toggle-top-cap-arc", cx: 263, cy: 716, r: 191, start: 4.55, end: 4.65, thickness: 18, role: "top-cap", toggleable: true, label: "곡선 상단 캡" },
+  { id: "toggle-main-curved-wall", groupId: "toggle-left-curve-wall", cx: 263, cy: 716, r: 191, start: 2.99, end: 4.63, thickness: 17, role: "main-curved-wall", toggleable: true, label: "좌측 곡선 가벽" },
+  { id: "toggle-top-cap-arc", groupId: "toggle-left-curve-wall", cx: 263, cy: 716, r: 191, start: 4.55, end: 4.65, thickness: 18, role: "top-cap", toggleable: true, label: "곡선 상단 캡" },
 ];
 
 export const toggleableFloorplanWalls = [
   ...wallSegmentDefs.filter((item) => item.toggleable).map((item) => ({ id: item.id, label: item.label, kind: "segment" })),
-  ...curvedWalls.filter((item) => item.toggleable).map((item) => ({ id: item.id, label: item.label, kind: "arc" })),
+  { id: "toggle-left-curve-wall", label: "좌측 곡선 가벽", kind: "arc-group" },
 ];
 
 export const wallBlocks = [
@@ -116,7 +113,7 @@ export function isFixedWall(x, y, devices = []) {
     if (distanceToSegment(x, y, x1, y1, x2, y2) <= wallThickness) return true;
   }
   for (const arc of curvedWalls) {
-    if (disabled.has(arc.id)) continue;
+    if (disabled.has(arc.id) || disabled.has(arc.groupId)) continue;
     if (distanceToArc(x, y, arc) <= arc.thickness) return true;
   }
   for (const block of wallBlocks) {
@@ -170,7 +167,7 @@ export function getWallLines(devices = []) {
   const disabled = disabledFloorplanWallIds(devices);
   const lines = wallSegmentDefs.filter((item) => !disabled.has(item.id)).map((item) => item.line);
   for (const arc of curvedWalls) {
-    if (disabled.has(arc.id)) continue;
+    if (disabled.has(arc.id) || disabled.has(arc.groupId)) continue;
     lines.push(...arcToSegments(arc, arc.role === "main-curved-wall" ? 30 : 5));
   }
   for (const block of wallBlocks) {
@@ -221,7 +218,7 @@ export function drawFloorPlan(ctx, devices = []) {
 
   ctx.lineCap = "round";
   for (const arc of curvedWalls) {
-    const inactive = disabled.has(arc.id);
+    const inactive = disabled.has(arc.id) || disabled.has(arc.groupId);
     ctx.strokeStyle = inactive ? "rgba(70,70,70,0.28)" : "rgba(0,0,0,0.95)";
     ctx.lineWidth = arc.thickness;
     ctx.beginPath();
