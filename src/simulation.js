@@ -40,23 +40,20 @@ export function buildMask(devices = []) {
 
 function thermalModifiers(px, py, devices = []) {
   let diffusion = 1;
-  let decay = 1;
   for (const device of devices) {
     if (device.type !== "heater" && device.type !== "cooler") continue;
     const distance = Math.hypot(px - device.x, py - device.y);
     if (distance > 125) continue;
     const influence = 1 - distance / 125;
     if (device.type === "heater") {
-      diffusion += influence * 0.42;
-      decay += influence * 0.5;
+      diffusion += influence * 0.55;
     } else {
-      diffusion -= influence * 0.28;
-      decay -= influence * 0.34;
+      diffusion -= influence * 0.42;
     }
   }
   return {
-    diffusion: Math.max(0.18, diffusion),
-    decay: Math.max(0.32, decay),
+    diffusion: Math.max(0.12, diffusion),
+    decay: 1,
   };
 }
 
@@ -105,7 +102,7 @@ function applyFans(field, next, mask, devices = []) {
         if (frontAlignment > 0.35) {
           const tx = gx + Math.round(forward.x);
           const ty = gy + Math.round(forward.y);
-          const amount = field[idx] * 0.095 * frontAlignment * (1 - distance / 200);
+          const amount = field[idx] * 0.15 * frontAlignment * (1 - distance / 200);
           transfer(field, next, mask, gx, gy, tx, ty, amount);
         }
       }
@@ -115,7 +112,7 @@ function applyFans(field, next, mask, devices = []) {
     if (!mask[center]) continue;
     const jetX = fanCell.x + Math.round(forward.x * 2);
     const jetY = fanCell.y + Math.round(forward.y * 2);
-    transfer(field, next, mask, fanCell.x, fanCell.y, jetX, jetY, field[center] * 0.18);
+    transfer(field, next, mask, fanCell.x, fanCell.y, jetX, jetY, field[center] * 0.28);
   }
 }
 
@@ -173,14 +170,14 @@ export function createSimulation() {
     ensureField(source);
     const field = fields.get(source.id);
     const cell = toCell(source);
-    const emission = source.emission ?? 1.3;
-    for (let y = cell.y - 2; y <= cell.y + 2; y += 1) {
-      for (let x = cell.x - 2; x <= cell.x + 2; x += 1) {
+    const emission = (source.emission ?? 1.3) * 1.9;
+    for (let y = cell.y - 3; y <= cell.y + 3; y += 1) {
+      for (let x = cell.x - 3; x <= cell.x + 3; x += 1) {
         if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
         const idx = gridIndex(x, y);
         if (!mask[idx]) continue;
         const distance = Math.hypot(x - cell.x, y - cell.y);
-        field[idx] = Math.min(10, field[idx] + emission / (1 + distance * 0.9));
+        field[idx] = Math.min(28, field[idx] + emission / (1 + distance * 0.72));
       }
     }
   }
@@ -206,9 +203,9 @@ export function createSimulation() {
           if (value <= 0.000001) continue;
           const p = cellCenter(x, y);
           const temp = thermalModifiers(p.x, p.y, devices);
-          const diffusion = Math.min(0.48, 0.2 * baseSpread * temp.diffusion);
-          const decay = Math.min(0.05, baseDecay * temp.decay);
-          const retained = value * Math.max(0.42, 1 - diffusion - decay);
+          const diffusion = Math.min(0.58, 0.24 * baseSpread * temp.diffusion);
+          const decay = Math.min(0.025, baseDecay * temp.decay);
+          const retained = value * Math.max(0.38, 1 - diffusion - decay);
           buffer[idx] += retained;
 
           const share = value * diffusion;

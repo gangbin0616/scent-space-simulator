@@ -6,10 +6,13 @@ import {
   isWalkable,
   partitionEndpoints,
   snapToWalkable,
+  toggleableFloorplanWalls,
 } from "./floorplan.js";
 import { createSimulation } from "./simulation.js";
 
 const MAX_POINTS = 10;
+const TARGET_THRESHOLD = 0.018;
+const TARGET_TIME_LIMIT = 15;
 
 const scentPresets = [
   { name: "Citrus Opening", color: "#d85f37", emission: 1.7, spread: 1.12, decay: 0.007 },
@@ -138,7 +141,7 @@ function raySegmentHit(origin, angle, segment) {
 
 function castRayHit(origin, angle) {
   let best = { distance: Infinity, segment: null, wallAngle: 0 };
-  for (const segment of getWallLines()) {
+  for (const segment of getWallLines(devices ?? [])) {
     const hit = raySegmentHit(origin, angle, segment);
     if (hit && hit.distance < best.distance) best = hit;
   }
@@ -152,15 +155,15 @@ function castRay(origin, angle) {
 function canViewerStandAt(x, y) {
   const r = VIEWER_COLLISION_RADIUS;
   return (
-    isWalkable(x, y) &&
-    isWalkable(x + r, y) &&
-    isWalkable(x - r, y) &&
-    isWalkable(x, y + r) &&
-    isWalkable(x, y - r) &&
-    isWalkable(x + r * 0.7, y + r * 0.7) &&
-    isWalkable(x - r * 0.7, y - r * 0.7) &&
-    isWalkable(x + r * 0.7, y - r * 0.7) &&
-    isWalkable(x - r * 0.7, y + r * 0.7)
+    isWalkable(x, y, devices ?? []) &&
+    isWalkable(x + r, y, devices ?? []) &&
+    isWalkable(x - r, y, devices ?? []) &&
+    isWalkable(x, y + r, devices ?? []) &&
+    isWalkable(x, y - r, devices ?? []) &&
+    isWalkable(x + r * 0.7, y + r * 0.7, devices ?? []) &&
+    isWalkable(x - r * 0.7, y - r * 0.7, devices ?? []) &&
+    isWalkable(x + r * 0.7, y - r * 0.7, devices ?? []) &&
+    isWalkable(x - r * 0.7, y + r * 0.7, devices ?? [])
   );
 }
 
@@ -538,7 +541,7 @@ function drawViewerMap() {
   const oy = (canvas.height - PLAN_HEIGHT * scale) / 2;
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
-  drawFloorPlan(ctx);
+  drawFloorPlan(ctx, devices);
   ctx.fillStyle = "#9f3a2e";
   ctx.beginPath();
   ctx.arc(viewer.camera.x, viewer.camera.y, 16, 0, Math.PI * 2);
@@ -630,6 +633,9 @@ const stageButtons = document.querySelector("#stageButtons");
 const toolButtons = document.querySelector("#toolButtons");
 const selectedDeviceEl = document.querySelector("#selectedDevice");
 const goalScoreEl = document.querySelector("#goalScore");
+const budgetTotalEl = document.querySelector("#budgetTotal");
+const budgetBreakdownEl = document.querySelector("#budgetBreakdown");
+const simTimerEl = document.querySelector("#simTimer");
 const rotateButton = document.querySelector("#rotateButton");
 const deleteButton = document.querySelector("#deleteButton");
 const toggleRunButton = document.querySelector("#toggleRun");
@@ -639,12 +645,13 @@ const sourceListEl = document.querySelector("#sourceList");
 const targetListEl = document.querySelector("#targetList");
 const addSourceButton = document.querySelector("#addSource");
 const addTargetButton = document.querySelector("#addTarget");
+const floorplanWallListEl = document.querySelector("#floorplanWallList");
 
 const stages = [
-  { id: 1, label: "1단계", detail: "가벽", allowed: ["partition"] },
+  { id: 1, label: "1단계", detail: "가벽", allowed: ["partition", "floorplan-wall-toggle"] },
   { id: 2, label: "2단계", detail: "서큘레이터", allowed: ["fan"] },
   { id: 3, label: "3단계", detail: "온도 장치", allowed: ["heater", "cooler"] },
-  { id: 4, label: "4단계", detail: "전체", allowed: ["partition", "fan", "heater", "cooler"] },
+  { id: 4, label: "4단계", detail: "전체", allowed: ["partition", "floorplan-wall-toggle", "fan", "heater", "cooler"] },
 ];
 
 const tools = [
@@ -659,6 +666,8 @@ const tools = [
 let stage = 4;
 let activeTool = "source";
 let running = true;
+let simElapsed = 0;
+let lastTickAt = 0;
 let sources = [
   {
     id: "source-1",
@@ -675,9 +684,17 @@ let targets = [
     x: 225,
     y: 575,
     name: "메인 체험존",
+    reachedAt: null,
   },
 ];
 let devices = [
+  ...toggleableFloorplanWalls.map((wall) => ({
+    id: `fixed-${wall.id}`,
+    type: "floorplan-wall-toggle",
+    wallId: wall.id,
+    name: wall.label,
+    active: true,
+  })),
   { id: uid("partition"), type: "partition", x: 205, y: 650, angle: -0.35, length: 116, thickness: 9 },
   { id: uid("fan"), type: "fan", x: 245, y: 690, angle: -1.05 },
   { id: uid("heater"), type: "heater", x: 170, y: 665 },
@@ -698,7 +715,7 @@ function isToolAllowed(type) {
 }
 
 function allElements() {
-  return [...sources, ...targets, ...devices];
+  return [...sources, ...targets, ...devices.filter((device) => device.type !== "floorplan-wall-toggle")];
 }
 
 function selectedElement() {
@@ -709,10 +726,19 @@ function labelFor(type) {
   return tools.find((tool) => tool.type === type)?.label ?? type;
 }
 
+function resetScentState() {
+  simElapsed = 0;
+  lastTickAt = 0;
+  targets.forEach((target) => {
+    target.reachedAt = null;
+  });
+  sim.reset(devices, sources);
+}
+
 function setStage(nextStage) {
   stage = nextStage;
   const allowed = allowedTools();
-  devices = devices.filter((device) => allowed.includes(device.type));
+  devices = devices.filter((device) => device.type === "floorplan-wall-toggle" || allowed.includes(device.type));
   if (!isToolAllowed(activeTool)) activeTool = allowed[0] ?? "source";
   selectedId = null;
   sim.refreshMask(devices);
@@ -746,6 +772,7 @@ function createTargetAt(point) {
     x: point.x,
     y: point.y,
     name: `체험존 ${targets.length + 1}`,
+    reachedAt: null,
   };
   targets = [...targets, target];
   return target;
@@ -785,6 +812,37 @@ function renderControls() {
   if (addTargetButton) addTargetButton.disabled = targets.length >= MAX_POINTS;
   renderSourceList();
   renderTargetList();
+  renderFloorplanWallList();
+  renderBudget();
+}
+
+function renderBudget() {
+  if (!budgetTotalEl) return;
+  const userPartitions = devices.filter((device) => device.type === "partition").length;
+  const removedFloorplanWalls = devices.filter((device) => device.type === "floorplan-wall-toggle" && device.active === false).length;
+  const fans = devices.filter((device) => device.type === "fan").length;
+  const thermal = devices.filter((device) => device.type === "heater" || device.type === "cooler").length;
+  const total = userPartitions * 100 + removedFloorplanWalls * 10 + fans * 10 + thermal * 20;
+  budgetTotalEl.textContent = `${total.toLocaleString("ko-KR")}만원`;
+  if (budgetBreakdownEl) budgetBreakdownEl.textContent = `가벽 설치 ${userPartitions}개 · 가벽 제거 ${removedFloorplanWalls}개 · 서큘레이터 ${fans}개 · 공조기 ${thermal}개`;
+}
+
+function renderFloorplanWallList() {
+  if (!floorplanWallListEl) return;
+  floorplanWallListEl.innerHTML = "";
+  const walls = devices.filter((device) => device.type === "floorplan-wall-toggle");
+  for (const wall of walls) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = wall.active ? "wall-toggle is-active" : "wall-toggle";
+    button.innerHTML = `<strong>${wall.name}</strong><span>${wall.active ? "활성 · 향 차단" : "비활성 · 향 통과"}</span>`;
+    button.addEventListener("click", () => {
+      wall.active = !wall.active;
+      sim.refreshMask(devices);
+      renderControls();
+    });
+    floorplanWallListEl.append(button);
+  }
 }
 
 function renderSourceList() {
@@ -819,7 +877,7 @@ function renderSourceList() {
     card.querySelector(".remove-point").addEventListener("click", () => {
       sources = sources.filter((item) => item.id !== source.id);
       if (selectedId === source.id) selectedId = sources[0]?.id ?? null;
-      sim.reset(devices, sources);
+      resetScentState();
       renderControls();
     });
     sourceListEl.append(card);
@@ -831,6 +889,10 @@ function renderTargetList() {
   targetListEl.innerHTML = "";
   targets.forEach((target) => {
     const result = sim.sampleTarget(target, sources);
+    const reached = target.reachedAt !== null && target.reachedAt !== undefined;
+    const failed = !reached && simElapsed > TARGET_TIME_LIMIT;
+    const statusText = reached ? (target.reachedAt <= TARGET_TIME_LIMIT ? `성공 ${target.reachedAt.toFixed(1)}초` : `지연 ${target.reachedAt.toFixed(1)}초`) : failed ? "실패" : "대기";
+    const statusClass = reached ? (target.reachedAt <= TARGET_TIME_LIMIT ? "is-success" : "is-late") : failed ? "is-fail" : "";
     const card = document.createElement("article");
     card.className = `point-card ${selectedId === target.id ? "is-selected" : ""}`;
     card.innerHTML = `
@@ -839,6 +901,7 @@ function renderTargetList() {
         <strong>${target.name}</strong>
         <em>${pct(result.total)}</em>
       </button>
+      <div class="target-status ${statusClass}">${statusText}</div>
       <input class="name-input" type="text" value="${target.name}" aria-label="도착점 이름" />
       <div class="scent-bars"></div>
       <button class="remove-point" type="button" ${targets.length <= 1 ? "disabled" : ""}>삭제</button>
@@ -899,12 +962,12 @@ function placeTool(point) {
     if (selected?.type === "source") {
       selected.x = p.x;
       selected.y = p.y;
-      sim.reset(devices, sources);
+      resetScentState();
       return;
     }
     const source = createSourceAt(p);
     if (source) selectedId = source.id;
-    sim.reset(devices, sources);
+    resetScentState();
     return;
   }
   if (activeTool === "target") {
@@ -934,7 +997,7 @@ function updateDragged(point) {
   const next = snapToWalkable({ x: point.x - dragging.dx, y: point.y - dragging.dy }, blockerDevices);
   selected.x = next.x;
   selected.y = next.y;
-  if (selected.type === "source") sim.reset(devices, sources);
+  if (selected.type === "source") resetScentState();
   if (selected.type === "partition") sim.refreshMask(devices);
 }
 
@@ -961,24 +1024,30 @@ function drawFanFlow(device, t) {
   simCtx.save();
   simCtx.translate(device.x, device.y);
   simCtx.rotate(device.angle ?? 0);
-  simCtx.fillStyle = "rgba(47,111,105,0.16)";
+  simCtx.fillStyle = "rgba(47,111,105,0.22)";
   simCtx.beginPath();
   simCtx.moveTo(8, 0);
-  simCtx.arc(0, 0, 170, -0.36, 0.36);
+  simCtx.arc(0, 0, 190, -0.46, 0.46);
   simCtx.closePath();
   simCtx.fill();
-  simCtx.strokeStyle = "rgba(47,111,105,0.34)";
-  simCtx.lineWidth = 3;
-  for (let i = 0; i < 4; i += 1) {
-    const y = -42 + i * 28;
-    const offset = (t * 34 + i * 17) % 70;
+  simCtx.strokeStyle = "rgba(34,130,116,0.62)";
+  simCtx.lineWidth = 5;
+  simCtx.setLineDash([]);
+  for (let i = 0; i < 5; i += 1) {
+    const y = -54 + i * 27;
+    const offset = (t * 58 + i * 19) % 84;
     simCtx.beginPath();
-    simCtx.moveTo(28 + offset, y);
-    simCtx.bezierCurveTo(72 + offset, y - 10, 116 + offset, y + 10, 158 + offset, y);
+    simCtx.moveTo(24 + offset, y);
+    simCtx.bezierCurveTo(78 + offset, y - 15, 126 + offset, y + 15, 188 + offset, y);
     simCtx.stroke();
+    simCtx.fillStyle = "rgba(34,130,116,0.58)";
+    simCtx.beginPath();
+    simCtx.arc(186 + offset, y, 5, 0, Math.PI * 2);
+    simCtx.fill();
   }
   simCtx.setLineDash([9, 8]);
-  simCtx.strokeStyle = "rgba(80,120,130,0.28)";
+  simCtx.strokeStyle = "rgba(80,120,130,0.32)";
+  simCtx.lineWidth = 3;
   for (let i = 0; i < 4; i += 1) {
     const y = -36 + i * 24;
     const offset = (t * 24 + i * 13) % 54;
@@ -1116,7 +1185,7 @@ function initSimulator() {
     if (!selected) return;
     if (selected.type === "source" && sources.length > 1) {
       sources = sources.filter((source) => source.id !== selected.id);
-      sim.reset(devices, sources);
+      resetScentState();
     } else if (selected.type === "target" && targets.length > 1) {
       targets = targets.filter((target) => target.id !== selected.id);
     } else {
@@ -1128,13 +1197,20 @@ function initSimulator() {
   });
   toggleRunButton?.addEventListener("click", () => {
     running = !running;
+    lastTickAt = 0;
     toggleRunButton.textContent = running ? "일시 정지" : "시뮬레이션 시작";
   });
-  resetScentButton?.addEventListener("click", () => sim.reset(devices, sources));
+  resetScentButton?.addEventListener("click", () => {
+    resetScentState();
+    renderControls();
+  });
   clearDevicesButton?.addEventListener("click", () => {
-    devices = [];
+    devices = devices.filter((device) => device.type === "floorplan-wall-toggle");
+    devices.forEach((device) => {
+      if (device.type === "floorplan-wall-toggle") device.active = true;
+    });
     selectedId = null;
-    sim.reset(devices, sources);
+    resetScentState();
     renderControls();
   });
   addSourceButton?.addEventListener("click", () => {
@@ -1143,7 +1219,7 @@ function initSimulator() {
     if (source) {
       selectedId = source.id;
       activeTool = "source";
-      sim.reset(devices, sources);
+      resetScentState();
       renderControls();
     }
   });
@@ -1163,6 +1239,9 @@ function tick(now = 0) {
   updateViewerMovement(now);
   const t = now / 1000;
   if (running) {
+    const dt = lastTickAt ? Math.min(0.08, (now - lastTickAt) / 1000) : 0;
+    simElapsed += dt;
+    lastTickAt = now;
     const key = JSON.stringify(devices.map((d) => [d.type, Math.round(d.x), Math.round(d.y), Math.round((d.angle ?? 0) * 100)]));
     if (key !== lastMaskKey) {
       sim.refreshMask(devices);
@@ -1171,13 +1250,19 @@ function tick(now = 0) {
     for (let i = 0; i < 2; i += 1) sim.step({ sources, devices });
   }
   if (simCtx) {
-    drawFloorPlan(simCtx);
+    drawFloorPlan(simCtx, devices);
     drawGrid();
     sim.draw(simCtx, sources);
     drawDevices(t);
-    const totals = targets.map((target) => sim.sampleTarget(target, sources).total);
+    const totals = targets.map((target) => {
+      const result = sim.sampleTarget(target, sources);
+      if ((target.reachedAt === null || target.reachedAt === undefined) && result.total >= TARGET_THRESHOLD) target.reachedAt = simElapsed;
+      return result.total;
+    });
     const average = totals.length ? totals.reduce((sum, value) => sum + value, 0) / totals.length : 0;
     goalScoreEl.textContent = pct(average);
+    if (simTimerEl) simTimerEl.textContent = `${simElapsed.toFixed(1)}초`;
+    renderBudget();
     if (Math.floor(now / 500) !== Math.floor((now - 16) / 500)) renderTargetList();
   }
   requestAnimationFrame(tick);

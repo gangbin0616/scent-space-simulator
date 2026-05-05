@@ -12,30 +12,37 @@ export const outerPolygon = [
   { x: 210, y: 307 },
 ];
 
-export const wallSegments = [
-  [210, 307, 210, 7],
-  [210, 7, 480, 7],
-  [480, 7, 480, 826],
-  [318, 188, 318, 36],
-  [318, 36, 470, 36],
-  [319, 191, 395, 191],
-  [50, 949, 50, 307],
-  [50, 307, 356, 307],
-  [50, 949, 680, 949],
-  [680, 949, 680, 725],
-  [480, 725, 680, 725],
-  [276, 413, 364, 413],
-  [360, 413, 360, 902],
-  [480, 186, 480, 222],
-  [480, 286, 480, 318],
+export const wallSegmentDefs = [
+  { id: "outer-northwest-vertical", line: [210, 307, 210, 7] },
+  { id: "outer-top", line: [210, 7, 480, 7] },
+  { id: "outer-right-long-vertical", line: [480, 7, 480, 826] },
+  { id: "toggle-upper-l-vertical", line: [318, 188, 318, 36], toggleable: true, label: "상단 ㄱ자 세로 가벽" },
+  { id: "toggle-upper-l-horizontal", line: [318, 36, 470, 36], toggleable: true, label: "상단 ㄱ자 가로 가벽" },
+  { id: "toggle-upper-short-horizontal", line: [319, 191, 395, 191], toggleable: true, label: "상단 내부 가로 가벽" },
+  { id: "outer-left", line: [50, 949, 50, 307] },
+  { id: "outer-left-top", line: [50, 307, 356, 307] },
+  { id: "outer-bottom", line: [50, 949, 680, 949] },
+  { id: "outer-right-lower", line: [680, 949, 680, 725] },
+  { id: "outer-lower-room-top", line: [480, 725, 680, 725] },
+  { id: "toggle-main-l-horizontal", line: [276, 413, 364, 413], toggleable: true, label: "메인 ㄱ자 가로 가벽" },
+  { id: "toggle-main-long-vertical", line: [360, 413, 360, 902], toggleable: true, label: "메인 긴 세로 가벽" },
+  { id: "toggle-right-gap-upper", line: [480, 186, 480, 222], toggleable: true, label: "우측 세로벽 상단 조각" },
+  { id: "toggle-right-gap-lower", line: [480, 286, 480, 318], toggleable: true, label: "우측 세로벽 하단 조각" },
 ];
 
+export const wallSegments = wallSegmentDefs.map((item) => item.line);
+
 export const curvedWalls = [
-  { cx: 263, cy: 716, r: 191, start: 2.99, end: 4.63, thickness: 17, role: "main-curved-wall" },
-  { cx: 252, cy: 716, r: 158, start: 3.18, end: 3.38, thickness: 8, role: "short-lower-arc" },
-  { cx: 252, cy: 716, r: 158, start: 3.62, end: 3.82, thickness: 9, role: "short-middle-arc" },
-  { cx: 252, cy: 716, r: 158, start: 4.08, end: 4.28, thickness: 9, role: "short-upper-arc" },
-  { cx: 263, cy: 716, r: 191, start: 4.55, end: 4.65, thickness: 18, role: "top-cap" },
+  { id: "toggle-main-curved-wall", cx: 263, cy: 716, r: 191, start: 2.99, end: 4.63, thickness: 17, role: "main-curved-wall", toggleable: true, label: "좌측 곡선 가벽" },
+  { id: "toggle-short-lower-arc", cx: 252, cy: 716, r: 158, start: 3.18, end: 3.38, thickness: 8, role: "short-lower-arc", toggleable: true, label: "하단 곡선 조각" },
+  { id: "toggle-short-middle-arc", cx: 252, cy: 716, r: 158, start: 3.62, end: 3.82, thickness: 9, role: "short-middle-arc", toggleable: true, label: "중단 곡선 조각" },
+  { id: "toggle-short-upper-arc", cx: 252, cy: 716, r: 158, start: 4.08, end: 4.28, thickness: 9, role: "short-upper-arc", toggleable: true, label: "상단 곡선 조각" },
+  { id: "toggle-top-cap-arc", cx: 263, cy: 716, r: 191, start: 4.55, end: 4.65, thickness: 18, role: "top-cap", toggleable: true, label: "곡선 상단 캡" },
+];
+
+export const toggleableFloorplanWalls = [
+  ...wallSegmentDefs.filter((item) => item.toggleable).map((item) => ({ id: item.id, label: item.label, kind: "segment" })),
+  ...curvedWalls.filter((item) => item.toggleable).map((item) => ({ id: item.id, label: item.label, kind: "arc" })),
 ];
 
 export const wallBlocks = [
@@ -45,6 +52,14 @@ export const wallBlocks = [
 ];
 
 export const wallThickness = 8.8;
+
+export function disabledFloorplanWallIds(devices = []) {
+  const disabled = new Set();
+  for (const device of devices) {
+    if (device.type === "floorplan-wall-toggle" && device.active === false) disabled.add(device.wallId);
+  }
+  return disabled;
+}
 
 export function pointInPolygon(point, polygon) {
   let inside = false;
@@ -92,12 +107,16 @@ export function distanceToArc(px, py, arc) {
   return Math.min(Math.hypot(px - sx, py - sy), Math.hypot(px - ex, py - ey));
 }
 
-export function isFixedWall(x, y) {
+export function isFixedWall(x, y, devices = []) {
+  const disabled = disabledFloorplanWallIds(devices);
   if (!pointInPolygon({ x, y }, outerPolygon)) return true;
-  for (const [x1, y1, x2, y2] of wallSegments) {
+  for (const item of wallSegmentDefs) {
+    if (disabled.has(item.id)) continue;
+    const [x1, y1, x2, y2] = item.line;
     if (distanceToSegment(x, y, x1, y1, x2, y2) <= wallThickness) return true;
   }
   for (const arc of curvedWalls) {
+    if (disabled.has(arc.id)) continue;
     if (distanceToArc(x, y, arc) <= arc.thickness) return true;
   }
   for (const block of wallBlocks) {
@@ -124,7 +143,7 @@ export function isDynamicWall(x, y, devices) {
 }
 
 export function isWall(x, y, devices = []) {
-  return isFixedWall(x, y) || isDynamicWall(x, y, devices);
+  return isFixedWall(x, y, devices) || isDynamicWall(x, y, devices);
 }
 
 export function isWalkable(x, y, devices = []) {
@@ -148,8 +167,10 @@ export function arcToSegments(arc, count = 18) {
 }
 
 export function getWallLines(devices = []) {
-  const lines = [...wallSegments];
+  const disabled = disabledFloorplanWallIds(devices);
+  const lines = wallSegmentDefs.filter((item) => !disabled.has(item.id)).map((item) => item.line);
   for (const arc of curvedWalls) {
+    if (disabled.has(arc.id)) continue;
     lines.push(...arcToSegments(arc, arc.role === "main-curved-wall" ? 30 : 5));
   }
   for (const block of wallBlocks) {
@@ -179,15 +200,18 @@ export function snapToWalkable(point, devices = []) {
   return { x: 120, y: 880 };
 }
 
-export function drawFloorPlan(ctx) {
+export function drawFloorPlan(ctx, devices = []) {
+  const disabled = disabledFloorplanWallIds(devices);
   ctx.save();
   ctx.fillStyle = "#fbfaf7";
   ctx.fillRect(0, 0, PLAN_WIDTH, PLAN_HEIGHT);
 
-  ctx.strokeStyle = "rgba(0,0,0,0.95)";
   ctx.lineCap = "square";
   ctx.lineJoin = "miter";
-  for (const [x1, y1, x2, y2] of wallSegments) {
+  for (const item of wallSegmentDefs) {
+    const [x1, y1, x2, y2] = item.line;
+    const inactive = disabled.has(item.id);
+    ctx.strokeStyle = inactive ? "rgba(70,70,70,0.28)" : "rgba(0,0,0,0.95)";
     ctx.lineWidth = 12;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
@@ -197,6 +221,8 @@ export function drawFloorPlan(ctx) {
 
   ctx.lineCap = "round";
   for (const arc of curvedWalls) {
+    const inactive = disabled.has(arc.id);
+    ctx.strokeStyle = inactive ? "rgba(70,70,70,0.28)" : "rgba(0,0,0,0.95)";
     ctx.lineWidth = arc.thickness;
     ctx.beginPath();
     ctx.arc(arc.cx, arc.cy, arc.r, arc.start, arc.end);

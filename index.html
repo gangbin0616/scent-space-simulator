@@ -3,18 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scent Space · 향수 팝업 공간 시뮬레이터</title>
+    <title>ScentMaze · 향수 팝업 공간 시뮬레이터</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23d85f37'/%3E%3Cpath d='M24 26h16v22H24zM27 16h10v10H27z' fill='%23fffaf2'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <button class="brand nav-button" type="button" data-route="home">Scent Space</button>
+        <button class="brand nav-button" type="button" data-route="home">ScentMaze</button>
         <nav>
           <button class="nav-button" type="button" data-route="home">메인</button>
-          <button class="nav-button" type="button" data-route="viewer">360도 뷰어</button>
           <button class="nav-button" type="button" data-route="simulator">시뮬레이터</button>
+          <button class="nav-button" type="button" data-route="viewer">3D 뷰어</button>
         </nav>
       </header>
 
@@ -23,13 +23,13 @@
           <div class="hero">
             <div class="hero-copy">
               <p class="eyebrow">Perfume Popup Flow Lab</p>
-              <h1>도면 위에서 향의 흐름과 체험 동선을 함께 봅니다.</h1>
+              <h1>ScentMaze</h1>
               <p>
-                같은 FLOORPLAN_SPEC 기반 도면으로 2.5D 뷰어와 향 확산 시뮬레이션을 연결합니다. 가벽, 서큘레이터, 온열, 냉각 조건이 향별 농도에 어떻게 작용하는지 확인하세요.
+                도면 위에서 향이 퍼지는 길을 설계하고, 성수 팝업 매장처럼 걸어보며 체험 동선을 확인합니다. 가벽, 바람, 온도, 예산을 함께 조절해 가장 좋은 향의 경로를 찾아보세요.
               </p>
               <div class="hero-actions">
-                <button class="primary-action nav-button" type="button" data-route="viewer">360도 공간 보기</button>
-                <button class="secondary-action nav-button" type="button" data-route="simulator">향 확산 실험</button>
+                <button class="primary-action nav-button" type="button" data-route="simulator">향 확산 실험</button>
+                <button class="secondary-action nav-button" type="button" data-route="viewer">3D 공간 보기</button>
               </div>
             </div>
             <div class="hero-plan">
@@ -46,16 +46,16 @@
                 <p>시뮬레이션과 뷰어는 모두 같은 도면 데이터와 벽 라인을 사용합니다.</p>
               </article>
               <article>
-                <h3>360도 뷰어</h3>
-                <p>도면 좌표를 raycast로 읽고 성수 향수 매장 무드의 워크스루 공간으로 보여줍니다.</p>
-              </article>
-              <article>
                 <h3>향 확산</h3>
                 <p>향별 field를 따로 계산해 출발점마다 다른 농도와 색상을 표시합니다.</p>
               </article>
               <article>
-                <h3>장치 효과</h3>
-                <p>서큘레이터 흡입/토출, 온열 확산, 냉각 잔향을 도면 위에 표현합니다.</p>
+                <h3>가벽 토글</h3>
+                <p>검정 가벽은 향을 막고, 회색 참고선은 향이 통과합니다.</p>
+              </article>
+              <article>
+                <h3>3D 워크스루</h3>
+                <p>도면 좌표를 raycast로 읽고 성수 향수 매장 무드의 공간으로 보여줍니다.</p>
               </article>
             </div>
           </section>
@@ -97,7 +97,7 @@
               <p class="eyebrow">Scent Flow Simulator</p>
               <h1>향 확산 작업대</h1>
             </div>
-            <p>도면을 크게 보고, 왼쪽에서 출발점·도착점·장치를 바로 조정합니다.</p>
+            <p>도면을 크게 보고, 왼쪽에서 출발점·도착점·장치·가벽 상태를 바로 조정합니다.</p>
           </div>
 
           <div class="sim-layout">
@@ -111,6 +111,12 @@
                 <h3>도구</h3>
                 <div class="tool-buttons" id="toolButtons"></div>
                 <p class="hint">도구 선택 후 도면 클릭. 선택된 출발점·도착점은 클릭 위치로 이동합니다.</p>
+              </div>
+
+              <div class="control-block">
+                <h3>도면 가벽 토글</h3>
+                <div class="wall-toggle-list" id="floorplanWallList"></div>
+                <p class="hint">검정은 활성 가벽, 회색은 비활성 참고선입니다. 비활성 상태에서는 향이 통과합니다.</p>
               </div>
 
               <div class="control-block">
@@ -139,13 +145,22 @@
                   <span>평균 농도</span>
                   <strong id="goalScore">0%</strong>
                 </div>
+                <div class="goal-meter">
+                  <span>경과 시간</span>
+                  <strong id="simTimer">0.0초</strong>
+                </div>
+                <div class="goal-meter">
+                  <span>사용 예산</span>
+                  <strong id="budgetTotal">0만원</strong>
+                </div>
+                <p class="budget-breakdown" id="budgetBreakdown">가벽 설치 100만원 · 제거 10만원 · 서큘레이터 10만원 · 공조기 20만원</p>
               </div>
             </aside>
 
             <div class="canvas-wrap">
               <div class="map-toolbar">
                 <strong>설계도 맵</strong>
-                <span>드래그로 배치 · 회전은 왼쪽 패널</span>
+                <span>드래그로 배치 · 토글로 가벽 활성/비활성</span>
               </div>
               <canvas id="simCanvas" width="744" height="960" aria-label="향수 팝업 스토어 도면 시뮬레이션"></canvas>
             </div>
