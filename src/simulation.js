@@ -42,13 +42,28 @@ export function buildMask(devices = []) {
   return mask;
 }
 
-function thermalModifiers(px, py, devices = []) {
+function gridLineClear(mask, from, toX, toY) {
+  const dx = toX - from.x;
+  const dy = toY - from.y;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy));
+  if (!steps) return true;
+  for (let i = 0; i <= steps; i += 1) {
+    const x = Math.round(from.x + (dx * i) / steps);
+    const y = Math.round(from.y + (dy * i) / steps);
+    if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return false;
+    if (!mask[gridIndex(x, y)]) return false;
+  }
+  return true;
+}
+
+function thermalModifiers(px, py, gx, gy, devices = [], mask = null) {
   let diffusion = 1;
   for (const device of devices) {
     if (device.type !== "heater" && device.type !== "cooler") continue;
     const distance = Math.hypot(px - device.x, py - device.y);
     const radius = Math.max(40, Math.min(240, device.radius ?? 125));
     if (distance > radius) continue;
+    if (mask && !gridLineClear(mask, toCell(device), gx, gy)) continue;
     const influence = 1 - distance / radius;
     if (device.type === "heater") {
       const temperature = Math.max(20, Math.min(45, device.temperature ?? 32));
@@ -212,7 +227,7 @@ export function createSimulation() {
           const value = field[idx];
           if (value <= 0.000001) continue;
           const p = cellCenter(x, y);
-          const temp = thermalModifiers(p.x, p.y, devices);
+          const temp = thermalModifiers(p.x, p.y, x, y, devices, mask);
           const diffusion = Math.min(0.88, 0.34 * baseSpread * temp.diffusion);
           const decay = Math.min(0.012, baseDecay * temp.decay);
           const retained = value * Math.max(0.1, 1 - diffusion - decay);

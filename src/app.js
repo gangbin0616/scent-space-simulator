@@ -1138,22 +1138,49 @@ function drawFanFlow(device, t) {
   simCtx.restore();
 }
 
+function thermalLineClear(device, x, y) {
+  const distance = Math.hypot(x - device.x, y - device.y);
+  const steps = Math.max(1, Math.ceil(distance / 10));
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const px = device.x + (x - device.x) * t;
+    const py = device.y + (y - device.y) * t;
+    if (!isWalkable(px, py, devices)) return false;
+  }
+  return true;
+}
+
+function drawThermalArea(device, radius, strength) {
+  const step = 18;
+  const color = device.type === "heater" ? "216,95,55" : "66,153,170";
+  const left = Math.max(0, device.x - radius);
+  const right = Math.min(PLAN_WIDTH, device.x + radius);
+  const top = Math.max(0, device.y - radius);
+  const bottom = Math.min(PLAN_HEIGHT, device.y + radius);
+  simCtx.save();
+  for (let y = top; y <= bottom; y += step) {
+    for (let x = left; x <= right; x += step) {
+      const distance = Math.hypot(x - device.x, y - device.y);
+      if (distance > radius) continue;
+      if (!isWalkable(x, y, devices) || !thermalLineClear(device, x, y)) continue;
+      const influence = 1 - distance / radius;
+      simCtx.fillStyle = `rgba(${color},${(0.035 + strength * 0.09) * influence})`;
+      simCtx.fillRect(x - step * 0.55, y - step * 0.55, step * 1.1, step * 1.1);
+    }
+  }
+  simCtx.restore();
+}
+
 function drawThermal(device, t) {
   normalizeThermalDevice(device);
   const radius = device.radius ?? 125;
   const heatStrength = device.type === "heater" ? (device.temperature - device.minTemperature) / (device.maxTemperature - device.minTemperature) : 0;
   const coolStrength = device.type === "cooler" ? (device.maxTemperature - device.temperature) / (device.maxTemperature - device.minTemperature) : 0;
   const strength = clamp(device.type === "heater" ? heatStrength : coolStrength, 0, 1);
+  drawThermalArea(device, radius, strength);
   simCtx.save();
   simCtx.translate(device.x, device.y);
   if (device.type === "heater") {
-    const glow = simCtx.createRadialGradient(0, 0, 14, 0, 0, radius);
-    glow.addColorStop(0, `rgba(216,95,55,${0.16 + strength * 0.16})`);
-    glow.addColorStop(1, "rgba(216,95,55,0)");
-    simCtx.fillStyle = glow;
-    simCtx.beginPath();
-    simCtx.arc(0, 0, radius, 0, Math.PI * 2);
-    simCtx.fill();
     simCtx.strokeStyle = `rgba(206,78,42,${0.38 + strength * 0.34})`;
     simCtx.lineWidth = 3 + strength * 3;
     for (let i = 0; i < 7; i += 1) {
@@ -1173,13 +1200,6 @@ function drawThermal(device, t) {
       simCtx.fill();
     }
   } else {
-    const glow = simCtx.createRadialGradient(0, 0, 10, 0, 0, radius);
-    glow.addColorStop(0, `rgba(66,153,170,${0.14 + strength * 0.16})`);
-    glow.addColorStop(1, "rgba(66,153,170,0)");
-    simCtx.fillStyle = glow;
-    simCtx.beginPath();
-    simCtx.arc(0, 0, radius, 0, Math.PI * 2);
-    simCtx.fill();
     for (let i = 0; i < 4; i += 1) {
       const r = 34 + ((t * (8 + strength * 18) + i * radius * 0.23) % Math.max(46, radius - 18));
       simCtx.strokeStyle = `rgba(42,122,146,${0.22 + strength * 0.2 - i * 0.035})`;
@@ -1242,10 +1262,6 @@ function drawDevices(t) {
       simCtx.globalAlpha = selected ? 1 : 0.88;
       simCtx.beginPath();
       simCtx.arc(0, 0, 22, 0, Math.PI * 2);
-      simCtx.fill();
-      simCtx.globalAlpha = selected ? 0.24 : 0.12;
-      simCtx.beginPath();
-      simCtx.arc(0, 0, radius, 0, Math.PI * 2);
       simCtx.fill();
       simCtx.globalAlpha = 1;
       simCtx.fillStyle = "#fffaf2";
