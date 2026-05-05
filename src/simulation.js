@@ -216,8 +216,8 @@ export function createSimulation() {
       const field = fields.get(scent.id);
       const buffer = buffers.get(scent.id);
       buffer.fill(0);
-      const speed = Math.max(0.1, scent.diffusionSpeed ?? scent.spread ?? 6);
-      const baseSpread = Math.max(0.12, 0.08 + speed / 5.2);
+      const speed = Math.max(0.01, scent.diffusionSpeed ?? scent.spread ?? 6);
+      const baseSpread = Math.max(0.06, 0.05 + speed / 6.2);
       const baseDecay = 0.00002;
 
       for (let y = 2; y < GRID_H - 2; y += 1) {

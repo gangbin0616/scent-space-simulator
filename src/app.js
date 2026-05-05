@@ -671,7 +671,7 @@ const tools = [
 
 let stage = 4;
 let activeTool = "source";
-let running = true;
+let running = false;
 let simElapsed = 0;
 let lastTickAt = 0;
 let latestAverage = 0;
@@ -850,8 +850,8 @@ function renderSimulationStatus(average = latestAverage) {
   if (successThresholdValueEl) successThresholdValueEl.textContent = `${successThresholdPercent}%`;
   if (successThresholdInput) successThresholdInput.value = String(successThresholdPercent);
   if (mapSuccessStateEl) {
-    mapSuccessStateEl.textContent = stateText;
-    mapSuccessStateEl.className = stateClass;
+    mapSuccessStateEl.textContent = running ? stateText : "멈춤";
+    mapSuccessStateEl.className = running ? stateClass : "is-paused";
   }
 }
 
@@ -885,7 +885,7 @@ function renderSourceList() {
         <strong>${source.name}</strong>
       </button>
       <label>색상 <input data-field="color" type="color" value="${source.color}" /></label>
-      <label>확산속도 <input data-field="diffusionSpeed" type="range" min="0.1" max="12" step="0.1" value="${source.diffusionSpeed ?? 6}" /><span>${(source.diffusionSpeed ?? 6).toFixed(1)}</span></label>
+      <label>확산속도 <input data-field="diffusionSpeed" type="range" min="0.01" max="12" step="0.01" value="${source.diffusionSpeed ?? 6}" /><span>${(source.diffusionSpeed ?? 6).toFixed(2)}</span></label>
       <button class="remove-point" type="button" ${sources.length <= 1 ? "disabled" : ""}>삭제</button>
     `;
     card.querySelector(".point-title").addEventListener("click", () => {
@@ -1382,6 +1382,7 @@ function initSimulator() {
     }
   });
   renderControls();
+  if (toggleRunButton) toggleRunButton.textContent = "시뮬레이션 시작";
 }
 
 function tick(now = 0) {
