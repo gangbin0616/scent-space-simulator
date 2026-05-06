@@ -4,11 +4,13 @@ import {
   drawFloorPlan,
   getWallLines,
   isWalkable,
+  outerPolygon,
   partitionEndpoints,
   snapToWalkable,
   toggleableFloorplanWalls,
 } from "./floorplan.js";
 import { createSimulation } from "./simulation.js";
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js";
 
 const MAX_POINTS = 10;
 const TARGET_TIME_LIMIT = 15;
@@ -29,6 +31,7 @@ function showPage(route) {
   for (const page of pages) page.hidden = page.dataset.page !== safeRoute;
   for (const button of navButtons) button.classList.toggle("is-current", button.dataset.route === safeRoute);
   if (window.location.hash !== `#${safeRoute}`) window.location.hash = safeRoute;
+  if (safeRoute === "viewer") requestAnimationFrame(drawViewer);
 }
 
 navButtons.forEach((button) => button.addEventListener("click", () => showPage(button.dataset.route)));
@@ -110,6 +113,23 @@ const viewerElements = [
   { key: "shelf", x: 300, y: 590, label: "선반", kind: "shelf", anchor: 0.52 },
   { key: "route", x: 300, y: 760, label: "동선", kind: "route", anchor: 0.78 },
 ];
+
+const VIEWER_WORLD_SCALE = 0.045;
+const VIEWER_EYE_HEIGHT = 2.45;
+const VIEWER_WALL_HEIGHT = 3.25;
+const VIEWER_WALL_THICKNESS = 0.18;
+const VIEWER_OBJECT_PICK_RADIUS = 0.42;
+
+const viewer3d = {
+  renderer: null,
+  scene: null,
+  camera: null,
+  world: null,
+  raycaster: new THREE.Raycaster(),
+  pointer: new THREE.Vector2(),
+  interactive: [],
+  sceneKey: "",
+};
 
 function normalizeAngle(angle) {
   let next = angle;
@@ -442,90 +462,204 @@ function drawWallObject(ctx, item) {
   ctx.restore();
 }
 
+function planToWorld(x, y, height = 0) {
+  return new THREE.Vector3((x - PLAN_WIDTH * 0.5) * VIEWER_WORLD_SCALE, height, (y - PLAN_HEIGHT * 0.5) * VIEWER_WORLD_SCALE);
+}
+
+function viewerSceneKey() {
+  const walls = getWallLines(devices ?? []).map((line) => line.map((value) => Math.round(value)));
+  const placed = devices
+    .filter((device) => ["partition", "fan", "heater", "cooler", "floorplan-wall-toggle"].includes(device.type))
+    .map((device) => [device.type, device.id, Math.round(device.x ?? 0), Math.round(device.y ?? 0), Math.round((device.angle ?? 0) * 100), device.active]);
+  return JSON.stringify({ walls, placed });
+}
+
+function makeViewerMaterial(color, roughness = 0.72, metalness = 0.02) {
+  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+}
+
+function addPickable(mesh, item) {
+  mesh.userData.viewerItem = item;
+  viewer3d.interactive.push(mesh);
+  return mesh;
+}
+
+function addWallMesh(group, line, index) {
+  const [x1, y1, x2, y2] = line;
+  const a = planToWorld(x1, y1);
+  const b = planToWorld(x2, y2);
+  const length = Math.max(0.05, a.distanceTo(b));
+  const geometry = new THREE.BoxGeometry(length, VIEWER_WALL_HEIGHT, VIEWER_WALL_THICKNESS);
+  const material = makeViewerMaterial(index % 5 === 0 ? 0xb86f54 : 0x8f6e5a, 0.82);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set((a.x + b.x) * 0.5, VIEWER_WALL_HEIGHT * 0.5, (a.z + b.z) * 0.5);
+  mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  if (index % 4 === 0) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.82, 0.035, 0.02), makeViewerMaterial(0xf7ead6, 0.58));
+    rail.position.set(0, 0.72, VIEWER_WALL_THICKNESS * 0.54);
+    mesh.add(rail);
+  }
+}
+
+function buildViewerFloor(group) {
+  const shape = new THREE.Shape();
+  outerPolygon.forEach((point, index) => {
+    const world = planToWorld(point.x, point.y);
+    if (index === 0) shape.moveTo(world.x, world.z);
+    else shape.lineTo(world.x, world.z);
+  });
+  shape.closePath();
+  const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), makeViewerMaterial(0x8d7a62, 0.9));
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  const ceiling = floor.clone();
+  ceiling.material = new THREE.MeshBasicMaterial({ color: 0xf4eadc, side: THREE.BackSide });
+  ceiling.position.y = VIEWER_WALL_HEIGHT;
+  ceiling.rotation.x = Math.PI / 2;
+  group.add(ceiling);
+}
+
+function createViewerObjectMesh(item) {
+  const group = new THREE.Group();
+  const palette = {
+    heater: 0xb65432,
+    cooler: 0x467e78,
+    fan: 0x2f6f69,
+    mural: 0xd85f37,
+    shelf: 0x7b4f35,
+    partition: 0x8b5543,
+    route: 0xe1a35f,
+    entrance: 0xaed8e4,
+  };
+  const color = palette[item.kind] ?? palette[item.type] ?? 0x2f6f69;
+
+  if (item.kind === "mural") {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 0.08), makeViewerMaterial(color, 0.55));
+    mesh.position.y = 1.65;
+    group.add(mesh);
+  } else if (item.kind === "shelf") {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.38), makeViewerMaterial(0x6d4a38, 0.7));
+    shelf.position.y = 0.92;
+    group.add(shelf);
+    for (let i = 0; i < 5; i += 1) {
+      const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.42, 12), makeViewerMaterial([0xd85f37, 0xc45d8f, 0x7b4f35, 0x6f7890, 0x4f8f6a][i], 0.38, 0.12));
+      bottle.position.set(-0.48 + i * 0.24, 1.22, 0);
+      group.add(bottle);
+    }
+  } else if (item.kind === "fan") {
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 32), makeViewerMaterial(color, 0.54, 0.08));
+    body.rotation.x = Math.PI / 2;
+    body.position.y = 0.62;
+    group.add(body);
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.55, 10), makeViewerMaterial(0x233330, 0.66));
+    stand.position.y = 0.28;
+    group.add(stand);
+  } else if (item.kind === "heater" || item.kind === "cooler") {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.9, 0.32), makeViewerMaterial(color, 0.46, 0.08));
+    body.position.y = 0.7;
+    group.add(body);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.58, 24, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16 }));
+    glow.position.y = 0.72;
+    group.add(glow);
+  } else if (item.kind === "glass-door") {
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.15, 0.08), new THREE.MeshPhysicalMaterial({ color: 0xbce8f0, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.44 }));
+    door.position.y = 1.2;
+    group.add(door);
+  } else {
+    const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.78, 18), makeViewerMaterial(color, 0.64));
+    marker.position.y = 0.44;
+    group.add(marker);
+  }
+
+  const pin = new THREE.Mesh(new THREE.SphereGeometry(VIEWER_OBJECT_PICK_RADIUS, 16, 8), new THREE.MeshBasicMaterial({ color: viewer.marker === item.key ? 0xe1a35f : 0xffffff, transparent: true, opacity: 0.01 }));
+  pin.position.y = 1.0;
+  addPickable(pin, item);
+  group.add(pin);
+  return group;
+}
+
+function dynamicViewerObjects() {
+  return devices
+    .filter((device) => ["fan", "heater", "cooler"].includes(device.type))
+    .map((device) => ({ key: device.id, x: device.x, y: device.y, kind: device.type, label: labelFor(device.type), dynamic: true }));
+}
+
+function rebuildViewerScene() {
+  if (!viewer3d.scene) return;
+  if (viewer3d.world) viewer3d.scene.remove(viewer3d.world);
+  viewer3d.interactive = [];
+  const group = new THREE.Group();
+  buildViewerFloor(group);
+  getWallLines(devices ?? []).forEach((line, index) => addWallMesh(group, line, index));
+
+  [...viewerElements, ...dynamicViewerObjects()].forEach((item) => {
+    const mesh = createViewerObjectMesh(item);
+    const position = planToWorld(item.x, item.y);
+    mesh.position.set(position.x, 0, position.z);
+    mesh.rotation.y = -(item.angle ?? 0);
+    group.add(mesh);
+  });
+
+  viewer3d.world = group;
+  viewer3d.scene.add(group);
+}
+
+function initViewer3D() {
+  if (viewer3d.renderer || !viewer.canvas) return;
+  viewer3d.renderer = new THREE.WebGLRenderer({ canvas: viewer.canvas, antialias: true, alpha: false });
+  viewer3d.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  viewer3d.renderer.setSize(viewer.canvas.width, viewer.canvas.height, false);
+  viewer3d.renderer.shadowMap.enabled = true;
+  viewer3d.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  viewer3d.scene = new THREE.Scene();
+  viewer3d.scene.background = new THREE.Color(0xf2e8d8);
+  viewer3d.scene.fog = new THREE.Fog(0xf2e8d8, 11, 42);
+
+  viewer3d.camera = new THREE.PerspectiveCamera(68, viewer.canvas.width / viewer.canvas.height, 0.05, 90);
+  viewer3d.scene.add(new THREE.HemisphereLight(0xfff5df, 0x5a4637, 1.45));
+  const key = new THREE.DirectionalLight(0xffddb0, 2.4);
+  key.position.set(-6, 7, 5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  viewer3d.scene.add(key);
+
+  for (let i = 0; i < 4; i += 1) {
+    const light = new THREE.PointLight(0xffe0aa, 1.2, 16);
+    const x = PLAN_WIDTH * (0.28 + i * 0.14);
+    const y = PLAN_HEIGHT * (0.18 + (i % 2) * 0.48);
+    light.position.copy(planToWorld(x, y, VIEWER_WALL_HEIGHT - 0.35));
+    viewer3d.scene.add(light);
+  }
+}
+
+function renderViewer3D() {
+  initViewer3D();
+  if (!viewer3d.renderer || !viewer3d.camera || !viewer3d.scene) return;
+  const key = viewerSceneKey();
+  if (key !== viewer3d.sceneKey) {
+    viewer3d.sceneKey = key;
+    rebuildViewerScene();
+  }
+  const position = planToWorld(viewer.camera.x, viewer.camera.y, VIEWER_EYE_HEIGHT);
+  viewer3d.camera.position.copy(position);
+  const lookAt = planToWorld(
+    viewer.camera.x + Math.cos(viewer.yaw) * 120,
+    viewer.camera.y + Math.sin(viewer.yaw) * 120,
+    VIEWER_EYE_HEIGHT - viewer.pitch * 3.2
+  );
+  viewer3d.camera.lookAt(lookAt);
+  viewer3d.renderer.render(viewer3d.scene, viewer3d.camera);
+}
+
 function drawViewer() {
-  const canvas = viewer.canvas;
-  const ctx = canvas?.getContext("2d");
-  if (!ctx) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  const fov = VIEWER_FOV;
-  const origin = viewer.camera;
-  const horizon = h * (0.47 + viewer.pitch * 0.24);
-
-  const sky = ctx.createLinearGradient(0, 0, 0, h / 2);
-  sky.addColorStop(0, "#f6efe4");
-  sky.addColorStop(1, "#cabaa2");
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, horizon);
-  drawCeilingLights(ctx, horizon);
-  const floor = ctx.createLinearGradient(0, horizon, 0, h);
-  floor.addColorStop(0, "#9b8972");
-  floor.addColorStop(0.52, "#645442");
-  floor.addColorStop(1, "#231c17");
-  ctx.fillStyle = floor;
-  ctx.fillRect(0, horizon, w, h - horizon);
-
-  ctx.strokeStyle = "rgba(255,250,242,0.08)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 11; i += 1) {
-    const y = horizon + 18 + i * i * 3.6;
-    ctx.beginPath();
-    ctx.moveTo(w * 0.12 - i * 54, y);
-    ctx.lineTo(w * 0.88 + i * 54, y);
-    ctx.stroke();
-  }
-  for (let i = -7; i <= 7; i += 1) {
-    const offset = i * 70 + normalizeAngle(viewer.yaw) * 24;
-    ctx.strokeStyle = "rgba(28,21,16,0.12)";
-    ctx.beginPath();
-    ctx.moveTo(w / 2 + offset * 0.18, horizon);
-    ctx.lineTo(w / 2 + offset * 2.4, h);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = "rgba(25,18,14,0.18)";
-  ctx.beginPath();
-  ctx.ellipse(w / 2, h * 0.86, w * 0.34, h * 0.08, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  const depthColumns = [];
-  for (let x = 0; x < w; x += 2) {
-    const delta = (x / w - 0.5) * fov;
-    const rayAngle = viewer.yaw + delta;
-    const hit = castRayHit(origin, rayAngle);
-    const rawDistance = hit.distance;
-    const corrected = Math.max(8, rawDistance * Math.cos(delta));
-    const wallHeight = Math.min(h * 1.18, (h * 188) / corrected);
-    const y = horizon - wallHeight * 0.52;
-    const angleLight = Math.abs(Math.cos((hit.wallAngle ?? 0) - viewer.yaw));
-    const shade = Math.max(86, Math.min(224, 218 - corrected * 0.2 + angleLight * 18));
-    drawViewerWallStripe(ctx, x, y, wallHeight, corrected, shade, x / 2);
-    depthColumns.push({ x, distance: corrected, y, wallHeight });
-  }
-
-  const visibleElements = [];
-  for (const item of viewerElements) {
-    const dx = item.x - origin.x;
-    const dy = item.y - origin.y;
-    const distance = Math.hypot(dx, dy);
-    const delta = normalizeAngle(Math.atan2(dy, dx) - viewer.yaw);
-    if (Math.abs(delta) > fov / 2) continue;
-    if (distance > castRay(origin, Math.atan2(dy, dx)) + 20) continue;
-    const screenX = (0.5 + delta / fov) * w;
-    const column = depthColumns[Math.max(0, Math.min(depthColumns.length - 1, Math.floor(screenX / 2)))] ?? { y: h * 0.2, wallHeight: h * 0.6 };
-    const size = Math.max(36, Math.min(86, 118 - distance * 0.13));
-    const screenY = Math.min(h * 0.82, column.y + column.wallHeight * (item.anchor ?? 0.73));
-    visibleElements.push({ ...item, screenX, screenY, size, distance, alpha: Math.max(0.46, Math.min(0.95, 1 - distance / 720)) });
-  }
-
-  for (const item of visibleElements.sort((a, b) => b.distance - a.distance)) drawWallObject(ctx, item);
-
-  const vignette = ctx.createRadialGradient(w / 2, h / 2, h * 0.1, w / 2, h / 2, w * 0.72);
-  vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(1, "rgba(12,9,7,0.24)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, w, h);
-
+  renderViewer3D();
   drawViewerMap();
 }
 
@@ -599,19 +733,17 @@ function initViewer() {
   });
   viewer.canvas?.addEventListener("click", (event) => {
     const rect = viewer.canvas.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * viewer.canvas.width;
-    const fov = VIEWER_FOV;
-    for (const item of viewerElements) {
-      const delta = normalizeAngle(Math.atan2(item.y - viewer.camera.y, item.x - viewer.camera.x) - viewer.yaw);
-      if (Math.abs(delta) > fov / 2) continue;
-      const screenX = (0.5 + delta / fov) * viewer.canvas.width;
-      if (Math.abs(screenX - x) < 58) {
-        viewer.marker = item.key;
-        writeInfo(viewer.info, item.key);
-        drawViewer();
-        break;
-      }
-    }
+    if (!viewer3d.camera || !viewer3d.interactive.length) return;
+    viewer3d.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    viewer3d.pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    viewer3d.raycaster.setFromCamera(viewer3d.pointer, viewer3d.camera);
+    const hit = viewer3d.raycaster.intersectObjects(viewer3d.interactive, true)[0];
+    const item = hit?.object?.userData?.viewerItem;
+    if (!item) return;
+    viewer.marker = item.key;
+    writeInfo(viewer.info, item.kind ?? item.type ?? item.key);
+    viewer3d.sceneKey = "";
+    drawViewer();
   });
   window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
