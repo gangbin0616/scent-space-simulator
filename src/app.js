@@ -106,18 +106,18 @@ const cameras = {
 const viewerElements = [
   { key: "entrance", x: 575, y: 932, label: "입구", kind: "glass-door", anchor: 0.62 },
   { key: "partition", x: 230, y: 530, label: "가벽", kind: "partition", anchor: 0.72 },
-  { key: "fan", x: 250, y: 650, label: "순환", kind: "fan", anchor: 0.74 },
-  { key: "heater", x: 166, y: 665, label: "온열", kind: "heater", anchor: 0.74 },
-  { key: "cooler", x: 400, y: 210, label: "냉방", kind: "cooler", anchor: 0.72 },
-  { key: "mural", x: 315, y: 760, label: "월이미지", kind: "mural", anchor: 0.42 },
-  { key: "shelf", x: 300, y: 590, label: "선반", kind: "shelf", anchor: 0.52 },
-  { key: "route", x: 300, y: 760, label: "동선", kind: "route", anchor: 0.78 },
+  { key: "fan", x: 245, y: 665, label: "순환", kind: "fan", angle: -0.45, anchor: 0.74 },
+  { key: "heater", x: 170, y: 728, label: "온열", kind: "heater", angle: 0.7, anchor: 0.74 },
+  { key: "cooler", x: 404, y: 210, label: "냉방", kind: "cooler", angle: Math.PI, anchor: 0.72 },
+  { key: "mural", x: 318, y: 760, label: "월이미지", kind: "mural", angle: Math.PI / 2, anchor: 0.42 },
+  { key: "shelf", x: 326, y: 610, label: "선반", kind: "shelf", angle: Math.PI / 2, anchor: 0.52 },
+  { key: "route", x: 292, y: 760, label: "동선", kind: "route", anchor: 0.78 },
 ];
 
 const VIEWER_WORLD_SCALE = 0.045;
-const VIEWER_EYE_HEIGHT = 2.45;
-const VIEWER_WALL_HEIGHT = 3.25;
-const VIEWER_WALL_THICKNESS = 0.18;
+const VIEWER_EYE_HEIGHT = 1.62;
+const VIEWER_WALL_HEIGHT = 4.65;
+const VIEWER_WALL_THICKNESS = 0.28;
 const VIEWER_OBJECT_PICK_RADIUS = 0.42;
 
 const viewer3d = {
@@ -129,6 +129,63 @@ const viewer3d = {
   pointer: new THREE.Vector2(),
   interactive: [],
   sceneKey: "",
+};
+
+function makeTextureCanvas(width, height, painter) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  painter(ctx, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+const viewerTextures = {
+  wall: makeTextureCanvas(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = "#9a755e";
+    ctx.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 28) {
+      ctx.fillStyle = x % 56 === 0 ? "rgba(85,48,34,0.22)" : "rgba(255,241,218,0.08)";
+      ctx.fillRect(x, 0, 6, h);
+    }
+    for (let y = 34; y < h; y += 58) {
+      ctx.fillStyle = "rgba(255,244,226,0.12)";
+      ctx.fillRect(0, y, w, 3);
+    }
+  }),
+  floor: makeTextureCanvas(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = "#8d7a62";
+    ctx.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 32) {
+      ctx.fillStyle = "rgba(255,240,216,0.10)";
+      ctx.fillRect(0, y, w, 2);
+    }
+    for (let x = 0; x < w; x += 48) {
+      ctx.fillStyle = "rgba(48,35,24,0.08)";
+      ctx.fillRect(x, 0, 2, h);
+    }
+  }),
+  mural: makeTextureCanvas(512, 320, (ctx, w, h) => {
+    const gradient = ctx.createLinearGradient(0, 0, w, h);
+    gradient.addColorStop(0, "#f4d7bd");
+    gradient.addColorStop(0.32, "#d85f37");
+    gradient.addColorStop(0.64, "#4f8f6a");
+    gradient.addColorStop(1, "#201914");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(255,250,242,0.74)";
+    ctx.fillRect(52, 58, 260, 14);
+    ctx.fillRect(52, 88, 170, 9);
+    ctx.fillStyle = "rgba(255,250,242,0.20)";
+    ctx.beginPath();
+    ctx.arc(w * 0.72, h * 0.48, 82, 0, Math.PI * 2);
+    ctx.fill();
+  }),
 };
 
 function normalizeAngle(angle) {
@@ -490,7 +547,13 @@ function addWallMesh(group, line, index) {
   const b = planToWorld(x2, y2);
   const length = Math.max(0.05, a.distanceTo(b));
   const geometry = new THREE.BoxGeometry(length, VIEWER_WALL_HEIGHT, VIEWER_WALL_THICKNESS);
-  const material = makeViewerMaterial(index % 5 === 0 ? 0xb86f54 : 0x8f6e5a, 0.82);
+  const material = new THREE.MeshStandardMaterial({
+    color: index % 5 === 0 ? 0xa87960 : 0x8f6e5a,
+    map: viewerTextures.wall,
+    roughness: 0.88,
+    metalness: 0.01,
+  });
+  material.map.repeat.set(Math.max(1, length * 0.6), 1.8);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set((a.x + b.x) * 0.5, VIEWER_WALL_HEIGHT * 0.5, (a.z + b.z) * 0.5);
   mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
@@ -498,9 +561,14 @@ function addWallMesh(group, line, index) {
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  if (index % 4 === 0) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.82, 0.035, 0.02), makeViewerMaterial(0xf7ead6, 0.58));
-    rail.position.set(0, 0.72, VIEWER_WALL_THICKNESS * 0.54);
+  if (index % 3 === 0) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.82, 0.055, 0.035), makeViewerMaterial(0xf7ead6, 0.58));
+    rail.position.set(0, 1.18, VIEWER_WALL_THICKNESS * 0.54);
+    mesh.add(rail);
+  }
+  if (index % 5 === 1) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.7, 0.04, 0.035), makeViewerMaterial(0x3d2d25, 0.72));
+    rail.position.set(0, 2.7, VIEWER_WALL_THICKNESS * 0.55);
     mesh.add(rail);
   }
 }
@@ -513,16 +581,24 @@ function buildViewerFloor(group) {
     else shape.lineTo(world.x, world.z);
   });
   shape.closePath();
-  const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), makeViewerMaterial(0x8d7a62, 0.9));
+  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x8d7a62, map: viewerTextures.floor, roughness: 0.92, metalness: 0.01 });
+  floorMaterial.map.repeat.set(8, 10);
+  const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   group.add(floor);
 
   const ceiling = floor.clone();
-  ceiling.material = new THREE.MeshBasicMaterial({ color: 0xf4eadc, side: THREE.BackSide });
+  ceiling.material = new THREE.MeshStandardMaterial({ color: 0xf4eadc, roughness: 0.86, side: THREE.BackSide });
   ceiling.position.y = VIEWER_WALL_HEIGHT;
   ceiling.rotation.x = Math.PI / 2;
   group.add(ceiling);
+
+  for (let i = 0; i < 7; i += 1) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.035, 0.12), new THREE.MeshBasicMaterial({ color: 0xfff0ca }));
+    strip.position.copy(planToWorld(170 + i * 58, 180 + (i % 3) * 220, VIEWER_WALL_HEIGHT - 0.04));
+    group.add(strip);
+  }
 }
 
 function createViewerObjectMesh(item) {
@@ -540,13 +616,19 @@ function createViewerObjectMesh(item) {
   const color = palette[item.kind] ?? palette[item.type] ?? 0x2f6f69;
 
   if (item.kind === "mural") {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 0.08), makeViewerMaterial(color, 0.55));
-    mesh.position.y = 1.65;
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2.25, 1.36, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, map: viewerTextures.mural, roughness: 0.5, metalness: 0.02 })
+    );
+    mesh.position.y = 1.72;
     group.add(mesh);
   } else if (item.kind === "shelf") {
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.38), makeViewerMaterial(0x6d4a38, 0.7));
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.16, 0.42), makeViewerMaterial(0x6d4a38, 0.7));
     shelf.position.y = 0.92;
     group.add(shelf);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.82, 0.08), makeViewerMaterial(0x4f362b, 0.78));
+    back.position.set(0, 1.12, -0.19);
+    group.add(back);
     for (let i = 0; i < 5; i += 1) {
       const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.42, 12), makeViewerMaterial([0xd85f37, 0xc45d8f, 0x7b4f35, 0x6f7890, 0x4f8f6a][i], 0.38, 0.12));
       bottle.position.set(-0.48 + i * 0.24, 1.22, 0);
@@ -560,6 +642,10 @@ function createViewerObjectMesh(item) {
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.55, 10), makeViewerMaterial(0x233330, 0.66));
     stand.position.y = 0.28;
     group.add(stand);
+    const airflow = new THREE.Mesh(new THREE.ConeGeometry(0.48, 1.45, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x9be4dc, transparent: true, opacity: 0.11, side: THREE.DoubleSide }));
+    airflow.rotation.x = Math.PI / 2;
+    airflow.position.set(0, 0.62, -0.86);
+    group.add(airflow);
   } else if (item.kind === "heater" || item.kind === "cooler") {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.9, 0.32), makeViewerMaterial(color, 0.46, 0.08));
     body.position.y = 0.7;
@@ -568,9 +654,20 @@ function createViewerObjectMesh(item) {
     glow.position.y = 0.72;
     group.add(glow);
   } else if (item.kind === "glass-door") {
-    const door = new THREE.Mesh(new THREE.BoxGeometry(1.25, 2.15, 0.08), new THREE.MeshPhysicalMaterial({ color: 0xbce8f0, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.44 }));
-    door.position.y = 1.2;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.65, 0.08), new THREE.MeshPhysicalMaterial({ color: 0xbce8f0, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.5, transmission: 0.25 }));
+    door.position.y = 1.45;
     group.add(door);
+    const frameMaterial = makeViewerMaterial(0x31261f, 0.62);
+    [
+      { x: -0.92, y: 1.45, w: 0.08, h: 2.82 },
+      { x: 0.92, y: 1.45, w: 0.08, h: 2.82 },
+      { x: 0, y: 2.84, w: 1.92, h: 0.08 },
+      { x: 0, y: 0.06, w: 1.92, h: 0.08 },
+    ].forEach((part) => {
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.14), frameMaterial);
+      frame.position.set(part.x, part.y, 0.02);
+      group.add(frame);
+    });
   } else {
     const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 0.78, 18), makeViewerMaterial(color, 0.64));
     marker.position.y = 0.44;
@@ -619,22 +716,22 @@ function initViewer3D() {
   viewer3d.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   viewer3d.scene = new THREE.Scene();
-  viewer3d.scene.background = new THREE.Color(0xf2e8d8);
-  viewer3d.scene.fog = new THREE.Fog(0xf2e8d8, 11, 42);
+  viewer3d.scene.background = new THREE.Color(0xefe4d4);
+  viewer3d.scene.fog = new THREE.FogExp2(0xefe4d4, 0.025);
 
-  viewer3d.camera = new THREE.PerspectiveCamera(68, viewer.canvas.width / viewer.canvas.height, 0.05, 90);
-  viewer3d.scene.add(new THREE.HemisphereLight(0xfff5df, 0x5a4637, 1.45));
-  const key = new THREE.DirectionalLight(0xffddb0, 2.4);
-  key.position.set(-6, 7, 5);
+  viewer3d.camera = new THREE.PerspectiveCamera(74, viewer.canvas.width / viewer.canvas.height, 0.05, 90);
+  viewer3d.scene.add(new THREE.HemisphereLight(0xfff5df, 0x574335, 1.18));
+  const key = new THREE.DirectionalLight(0xffddb0, 2.0);
+  key.position.set(-5, 8, 4);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
   viewer3d.scene.add(key);
 
   for (let i = 0; i < 4; i += 1) {
-    const light = new THREE.PointLight(0xffe0aa, 1.2, 16);
+    const light = new THREE.PointLight(0xffe0aa, 1.7, 17);
     const x = PLAN_WIDTH * (0.28 + i * 0.14);
     const y = PLAN_HEIGHT * (0.18 + (i % 2) * 0.48);
-    light.position.copy(planToWorld(x, y, VIEWER_WALL_HEIGHT - 0.35));
+    light.position.copy(planToWorld(x, y, VIEWER_WALL_HEIGHT - 0.55));
     viewer3d.scene.add(light);
   }
 }
@@ -652,7 +749,7 @@ function renderViewer3D() {
   const lookAt = planToWorld(
     viewer.camera.x + Math.cos(viewer.yaw) * 120,
     viewer.camera.y + Math.sin(viewer.yaw) * 120,
-    VIEWER_EYE_HEIGHT - viewer.pitch * 3.2
+    VIEWER_EYE_HEIGHT - 0.06 - viewer.pitch * 2.6
   );
   viewer3d.camera.lookAt(lookAt);
   viewer3d.renderer.render(viewer3d.scene, viewer3d.camera);
@@ -675,16 +772,39 @@ function drawViewerMap() {
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
   drawFloorPlan(ctx, devices);
+  const fovLength = 150;
+  const leftAngle = viewer.yaw - VIEWER_FOV * 0.28;
+  const rightAngle = viewer.yaw + VIEWER_FOV * 0.28;
+  const gradient = ctx.createRadialGradient(viewer.camera.x, viewer.camera.y, 10, viewer.camera.x, viewer.camera.y, fovLength);
+  gradient.addColorStop(0, "rgba(225,163,95,0.34)");
+  gradient.addColorStop(1, "rgba(225,163,95,0)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.moveTo(viewer.camera.x, viewer.camera.y);
+  ctx.lineTo(viewer.camera.x + Math.cos(leftAngle) * fovLength, viewer.camera.y + Math.sin(leftAngle) * fovLength);
+  ctx.arc(viewer.camera.x, viewer.camera.y, fovLength, leftAngle, rightAngle);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(159,58,46,0.62)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(viewer.camera.x, viewer.camera.y);
+  ctx.lineTo(viewer.camera.x + Math.cos(viewer.yaw) * 126, viewer.camera.y + Math.sin(viewer.yaw) * 126);
+  ctx.stroke();
   ctx.fillStyle = "#9f3a2e";
   ctx.beginPath();
   ctx.arc(viewer.camera.x, viewer.camera.y, 16, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#e1a35f";
-  ctx.lineWidth = 7;
-  ctx.beginPath();
-  ctx.moveTo(viewer.camera.x, viewer.camera.y);
-  ctx.lineTo(viewer.camera.x + Math.cos(viewer.yaw) * 110, viewer.camera.y + Math.sin(viewer.yaw) * 110);
+  ctx.strokeStyle = "#fffaf2";
+  ctx.lineWidth = 5;
   ctx.stroke();
+  ctx.fillStyle = "#e1a35f";
+  ctx.beginPath();
+  ctx.moveTo(viewer.camera.x + Math.cos(viewer.yaw) * 24, viewer.camera.y + Math.sin(viewer.yaw) * 24);
+  ctx.lineTo(viewer.camera.x + Math.cos(viewer.yaw + 2.45) * 9, viewer.camera.y + Math.sin(viewer.yaw + 2.45) * 9);
+  ctx.lineTo(viewer.camera.x + Math.cos(viewer.yaw - 2.45) * 9, viewer.camera.y + Math.sin(viewer.yaw - 2.45) * 9);
+  ctx.closePath();
+  ctx.fill();
   for (const item of viewerElements) {
     ctx.fillStyle = viewer.marker === item.key ? "#e1a35f" : "#2f6f69";
     ctx.beginPath();
