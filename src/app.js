@@ -16,11 +16,11 @@ const MAX_POINTS = 10;
 const TARGET_TIME_LIMIT = 15;
 
 const scentPresets = [
-  { name: "Citrus Opening", color: "#d85f37", diffusionSpeed: 7.2 },
-  { name: "Floral Heart", color: "#c45d8f", diffusionSpeed: 6.4 },
-  { name: "Woody Base", color: "#7b4f35", diffusionSpeed: 5.6 },
-  { name: "Musk Trail", color: "#6f7890", diffusionSpeed: 5.1 },
-  { name: "Green Mist", color: "#4f8f6a", diffusionSpeed: 6.8 },
+  { name: "Citrus Opening", color: "#d85f37", diffusionSpeed: 0.01 },
+  { name: "Floral Heart", color: "#c45d8f", diffusionSpeed: 0.01 },
+  { name: "Woody Base", color: "#7b4f35", diffusionSpeed: 0.01 },
+  { name: "Musk Trail", color: "#6f7890", diffusionSpeed: 0.01 },
+  { name: "Green Mist", color: "#4f8f6a", diffusionSpeed: 0.01 },
 ];
 
 const pages = [...document.querySelectorAll("[data-page]")];
@@ -96,7 +96,7 @@ const VIEWER_TURN_SPEED = 2.15;
 const VIEWER_MAX_PITCH = 0.62;
 
 const cameras = {
-  entry: { x: 120, y: 880, yaw: -Math.PI / 2 },
+  entry: { x: 575, y: 882, yaw: -Math.PI / 2 },
   curve: { x: 175, y: 700, yaw: -0.92 },
   center: { x: 235, y: 590, yaw: -0.55 },
   north: { x: 392, y: 235, yaw: 1.95 },
@@ -104,7 +104,7 @@ const cameras = {
 };
 
 const viewerElements = [
-  { key: "entrance", x: 120, y: 905, label: "입구", kind: "glass-door", anchor: 0.62 },
+  { key: "entrance", x: 575, y: 932, label: "입구", kind: "glass-door", anchor: 0.62 },
   { key: "partition", x: 230, y: 530, label: "가벽", kind: "partition", anchor: 0.72 },
   { key: "fan", x: 250, y: 650, label: "순환", kind: "fan", anchor: 0.74 },
   { key: "heater", x: 166, y: 665, label: "온열", kind: "heater", anchor: 0.74 },
@@ -784,6 +784,7 @@ const targetListEl = document.querySelector("#targetList");
 const addSourceButton = document.querySelector("#addSource");
 const addTargetButton = document.querySelector("#addTarget");
 const floorplanWallListEl = document.querySelector("#floorplanWallList");
+const feedbackPanelEl = document.querySelector("#feedbackPanel");
 
 const stages = [
   { id: 1, label: "1단계", detail: "가벽", allowed: ["partition", "floorplan-wall-toggle"] },
@@ -801,7 +802,7 @@ const tools = [
   { type: "cooler", label: "냉각" },
 ];
 
-let stage = 4;
+let stage = 1;
 let activeTool = "source";
 let running = false;
 let simElapsed = 0;
@@ -839,6 +840,7 @@ let devices = [
 let selectedId = sources[0].id;
 let dragging = null;
 let lastMaskKey = "";
+let lastFeedbackState = "pending";
 const sim = createSimulation();
 sim.reset(devices, sources);
 
@@ -865,6 +867,8 @@ function labelFor(type) {
 function resetScentState() {
   simElapsed = 0;
   lastTickAt = 0;
+  lastFeedbackState = "pending";
+  if (feedbackPanelEl) feedbackPanelEl.hidden = true;
   targets.forEach((target) => {
     target.reachedAt = null;
   });
@@ -987,6 +991,37 @@ function renderSimulationStatus(average = latestAverage) {
   }
 }
 
+function renderFeedbackPanel(average = latestAverage) {
+  if (!feedbackPanelEl || !running) return;
+  const threshold = successThresholdValue();
+  const success = average >= threshold;
+  const failed = !success && simElapsed > TARGET_TIME_LIMIT;
+  const nextState = success ? "success" : failed ? "fail" : "pending";
+  if (nextState === "pending" || nextState === lastFeedbackState) return;
+  lastFeedbackState = nextState;
+  feedbackPanelEl.hidden = false;
+  feedbackPanelEl.className = `feedback-panel is-${nextState}`;
+  if (success) {
+    feedbackPanelEl.innerHTML = `
+      <strong>단계 성공</strong>
+      <span>목표 농도 ${successThresholdPercent}%에 도달했습니다. 다음 단계로 넘어가거나 장치를 추가해 경로를 더 안정화해보세요.</span>
+      <button type="button" data-feedback-action="next">다음 단계</button>
+    `;
+  } else {
+    feedbackPanelEl.innerHTML = `
+      <strong>도달 실패</strong>
+      <span>${TARGET_TIME_LIMIT}초 안에 목표 농도에 도달하지 못했습니다. 향 속도를 올리거나 가벽을 비활성화하고, 서큘레이터 방향을 조정해보세요.</span>
+      <button type="button" data-feedback-action="reset">다시 실행</button>
+    `;
+  }
+  feedbackPanelEl.querySelector("button")?.addEventListener("click", (event) => {
+    const action = event.currentTarget.dataset.feedbackAction;
+    if (action === "next") setStage(Math.min(4, stage + 1));
+    resetScentState();
+    renderControls();
+  });
+}
+
 function renderFloorplanWallList() {
   if (!floorplanWallListEl) return;
   floorplanWallListEl.innerHTML = "";
@@ -1029,7 +1064,11 @@ function renderSourceList() {
       input.addEventListener("input", () => {
         const field = input.dataset.field;
         source[field] = field === "color" ? input.value : Number(input.value);
-        if (field === "diffusionSpeed") resetScentState();
+        if (field === "diffusionSpeed") {
+          input.nextElementSibling.textContent = Number(input.value).toFixed(2);
+          resetScentState();
+          return;
+        }
         renderControls();
       });
     });
@@ -1088,8 +1127,9 @@ function renderDeviceSettings(selected) {
       const field = input.dataset.deviceField;
       selected[field] = Number(input.value);
       normalizeThermalDevice(selected);
+      input.nextElementSibling.textContent = field === "temperature" ? `${Math.round(selected.temperature)}℃` : `${Math.round(selected.radius)}px`;
       sim.refreshMask(devices);
-      renderControls();
+      drawViewer();
     });
   });
 }
@@ -1553,6 +1593,10 @@ function initSimulator() {
   toggleRunButton?.addEventListener("click", () => {
     running = !running;
     lastTickAt = 0;
+    if (running) {
+      lastFeedbackState = "pending";
+      if (feedbackPanelEl) feedbackPanelEl.hidden = true;
+    }
     toggleRunButton.textContent = running ? "일시 정지" : "시뮬레이션 시작";
   });
   resetScentButton?.addEventListener("click", () => {
@@ -1625,6 +1669,7 @@ function tick(now = 0) {
     });
     const average = totals.length ? totals.reduce((sum, value) => sum + value, 0) / totals.length : 0;
     renderSimulationStatus(average);
+    renderFeedbackPanel(average);
     renderBudget();
     if (Math.floor(now / 500) !== Math.floor((now - 16) / 500)) renderTargetList();
   }

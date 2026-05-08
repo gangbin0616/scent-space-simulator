@@ -25,7 +25,7 @@ export const wallSegmentDefs = [
   { id: "outer-right-lower", line: [680, 949, 680, 725] },
   { id: "outer-lower-room-top", line: [480, 725, 680, 725] },
   { id: "toggle-main-l-horizontal", line: [276, 413, 364, 413], toggleable: true, label: "메인 ㄱ자 가로 가벽" },
-  { id: "toggle-main-long-vertical", line: [360, 413, 360, 902], toggleable: true, label: "메인 긴 세로 가벽" },
+  { id: "toggle-main-long-vertical", line: [360, 413, 360, 842], toggleable: true, label: "메인 긴 세로 가벽" },
   { id: "right-gap-upper", line: [480, 186, 480, 222] },
   { id: "right-gap-lower", line: [480, 286, 480, 318] },
 ];
