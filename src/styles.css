@@ -21,6 +21,7 @@ html {
 
 body {
   margin: 0;
+  overflow-x: hidden;
   background: var(--paper);
 }
 
@@ -107,6 +108,7 @@ button {
 
 .hero-copy {
   align-self: end;
+  min-width: 0;
   padding: 80px clamp(24px, 6vw, 92px);
   color: #fffaf2;
 }
@@ -179,16 +181,70 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 0;
   min-height: 680px;
   padding: 42px;
 }
 
-#homePlanCanvas {
-  width: min(100%, 420px);
-  border: 1px solid rgba(255, 250, 242, 0.34);
-  border-radius: 8px;
-  background: #fbfaf7;
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.28);
+.home-brief {
+  width: min(100%, 520px);
+  min-width: 0;
+  color: #fffaf2;
+}
+
+.brief-kicker {
+  margin: 0 0 18px;
+  color: #e1a35f;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.home-brief h2 {
+  max-width: 520px;
+  font-size: clamp(34px, 3.7vw, 50px);
+  line-height: 1.12;
+}
+
+.home-brief > p:not(.brief-kicker) {
+  max-width: 430px;
+  margin: 22px 0 0;
+  color: rgba(255, 250, 242, 0.78);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.75;
+}
+
+.home-brief dl {
+  display: grid;
+  gap: 0;
+  margin: 34px 0 0;
+  border-top: 1px solid rgba(255, 250, 242, 0.22);
+}
+
+.home-brief dl > div {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 18px;
+  border-bottom: 1px solid rgba(255, 250, 242, 0.16);
+  padding: 18px 0;
+}
+
+.home-brief dt {
+  color: #e1a35f;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.home-brief dd {
+  margin: 0;
+  color: rgba(255, 250, 242, 0.84);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.55;
 }
 
 .hero-visual {
@@ -1192,7 +1248,9 @@ canvas {
   }
 
   .hero-plan {
-    min-height: 480px;
+    min-height: auto;
+    justify-content: flex-start;
+    padding: 0 24px 72px;
   }
 
   .interior-stage {
@@ -1229,12 +1287,49 @@ canvas {
 }
 
 @media (max-width: 620px) {
+  .hero {
+    display: block;
+  }
+
   .topbar nav {
     display: none;
   }
 
   .hero-copy {
-    padding: 72px 20px;
+    width: 100%;
+    padding: 72px 20px 42px;
+  }
+
+  .home-brief {
+    width: 100%;
+    max-width: 340px;
+  }
+
+  .hero-copy h1 {
+    font-size: clamp(42px, 13vw, 52px);
+  }
+
+  .hero-copy > p:last-of-type,
+  .home-brief > p:not(.brief-kicker) {
+    width: 100%;
+    max-width: 340px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    font-size: 16px;
+    line-height: 1.72;
+  }
+
+  .home-brief h2 {
+    width: 100%;
+    max-width: 340px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    font-size: clamp(32px, 10vw, 40px);
+  }
+
+  .home-brief dl > div {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .guide-grid {

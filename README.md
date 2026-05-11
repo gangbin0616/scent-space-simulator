@@ -1,50 +1,61 @@
 # Scent Space Simulator
 
-향수 팝업 공간의 도면, 2.5D 뷰어, 향 확산 시뮬레이션을 한 화면에서 실험하는 정적 웹 앱입니다.
+ScentMaze is a static web app for testing scent flow inside a perfume popup space. It combines one shared floorplan model, a scent diffusion simulator, and a real Three.js 3D walkthrough.
 
-## 주요 기능
+Older viewer notes were obsolete and have been consolidated around the current Three.js implementation.
 
-- `FLOORPLAN_SPEC.md` 기준의 단일 도면 데이터 사용
-- 도면 기반 2.5D / 360도 스타일 뷰어
-- 향별 확산 field를 분리한 다중 향 시뮬레이션
-- 출발점 최대 10개, 도착점 최대 10개
-- 출발점별 향 이름, 색상, 발향량, 퍼짐, 감쇠 조절
-- 도착점별 전체 농도와 향별 농도 막대 표시
-- 가벽, 서큘레이터, 온열 장치, 냉각 장치 배치
-- 서큘레이터 흡입/토출, 온열 상승, 냉각 잔향 시각화
+## Current Features
 
-## 실행
+- Floorplan-driven scent diffusion simulator
+- Multiple scent sources and target points
+- Movable partitions, fans, heaters, and coolers
+- Toggleable floorplan walls that affect scent spread
+- Budget, timer, target success state, and scent contribution readouts
+- Three.js 3D walkthrough using the same floorplan coordinates
+- WASD movement, mouse drag look, preset camera positions, minimap, and clickable 3D objects
+
+## Run Locally
 
 ```powershell
 python -m http.server 4173
 ```
 
-브라우저에서 아래 URL을 엽니다.
+Open:
 
 ```txt
 http://127.0.0.1:4173/#home
-http://127.0.0.1:4173/#viewer
 http://127.0.0.1:4173/#simulator
+http://127.0.0.1:4173/#viewer
 ```
 
-## 파일 구조
+## Project Structure
 
 ```txt
 index.html
 src/
-  app.js
-  floorplan.js
-  simulation.js
+  app.js          Main UI, simulator controls, Three.js viewer
+  floorplan.js    Single source of truth for floorplan geometry
+  simulation.js   Grid-based scent diffusion engine
   styles.css
   assets/
 docs/
-  PROJECT_DESCRIPTION.md
-  WORK_COMPLETED.md
-  DEVELOPMENT_GUIDELINES.md
-  FUTURE_ROADMAP.md
-  VIEWER_360_RESEARCH.md
+  ARCHITECTURE.md
+  THREE_D_ROADMAP.md
+  WEB_3D_REFERENCES.md
+FLOORPLAN_SPEC.md
 ```
 
-## 핵심 설계 원칙
+## Development Checks
 
-`src/floorplan.js`가 도면의 단일 진실 공급원입니다. 시뮬레이터와 2.5D 뷰어는 모두 같은 벽 데이터와 좌표계를 사용해야 합니다.
+```powershell
+node --check src\floorplan.js
+node --check src\simulation.js
+node --check src\app.js
+```
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): current code structure and data flow
+- [3D Roadmap](docs/THREE_D_ROADMAP.md): what to improve next in the Three.js viewer
+- [Web 3D References](docs/WEB_3D_REFERENCES.md): official/reference links and project-specific guidance
+- [Floorplan Spec](FLOORPLAN_SPEC.md): coordinate system and floorplan rules
