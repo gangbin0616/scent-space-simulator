@@ -3,18 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ScentMaze · 향수 팝업 공간 시뮬레이터</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23d85f37'/%3E%3Cpath d='M24 26h16v22H24zM27 16h10v10H27z' fill='%23fffaf2'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="./src/styles.css?v=20260511-home-clean" />
+    <title>scent-space-simulator</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23b56f4d'/%3E%3Cpath d='M24 26h16v22H24zM27 16h10v10H27z' fill='%23fffaf1'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./src/styles.css?v=20260511-boutique-design" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <button class="brand nav-button" type="button" data-route="home">ScentMaze</button>
+        <button class="brand nav-button" type="button" data-route="home">scent-space-simulator</button>
         <nav>
-          <button class="nav-button" type="button" data-route="home">메인</button>
+          <button class="nav-button" type="button" data-route="home">홈</button>
           <button class="nav-button" type="button" data-route="simulator">시뮬레이터</button>
-          <button class="nav-button" type="button" data-route="viewer">3D 뷰어</button>
+          <button class="nav-button" type="button" data-route="viewer">3D 워크스루</button>
           <a class="nav-link" href="https://spacedesign-ekn5kbds.manus.space/" target="_blank" rel="noreferrer">기존 사이트</a>
         </nav>
       </header>
@@ -24,26 +24,27 @@
           <div class="hero">
             <div class="hero-copy">
               <p class="eyebrow">Perfume Popup Flow Lab</p>
-              <h1>ScentMaze</h1>
+              <h1>scent-space-simulator</h1>
               <p>
-                도면 위에서 향이 퍼지는 길을 설계하고, 성수 팝업 매장처럼 걸어보며 체험 동선을 확인합니다. 가벽, 바람, 온도, 예산을 함께 조절해 가장 좋은 향의 경로를 찾아보세요.
+                향, 벽, 바람, 온도를 하나의 도면에서 조정하고 성수 향수 매장 무드의 3D 공간으로 확인합니다.
+                같은 도면 데이터를 기준으로 확산 흐름과 방문자 체험 동선을 함께 검토합니다.
               </p>
               <div class="hero-actions">
-                <button class="primary-action nav-button" type="button" data-route="simulator">향 확산 실험</button>
+                <button class="primary-action nav-button" type="button" data-route="simulator">시뮬레이션 열기</button>
                 <button class="secondary-action nav-button" type="button" data-route="viewer">3D 공간 보기</button>
               </div>
-              <dl class="hero-summary" aria-label="ScentMaze 핵심 기능 요약">
+              <dl class="hero-summary" aria-label="scent-space-simulator 핵심 기능 요약">
                 <div>
-                  <dt>Simulation</dt>
-                  <dd>향 확산, 도착 농도, 예산을 한 화면에서 비교</dd>
+                  <dt>Shared Floorplan</dt>
+                  <dd>시뮬레이션과 뷰어가 같은 벽 라인과 도면 좌표를 사용합니다.</dd>
+                </div>
+                <div>
+                  <dt>Scent Flow</dt>
+                  <dd>향별 field를 따로 계산해 출발점마다 다른 농도와 색상을 표시합니다.</dd>
                 </div>
                 <div>
                   <dt>3D Walkthrough</dt>
-                  <dd>같은 도면 데이터를 기반으로 공간감과 동선 확인</dd>
-                </div>
-                <div>
-                  <dt>Wall Aware</dt>
-                  <dd>벽과 가벽이 향의 흐름과 이동 가능 영역에 반영</dd>
+                  <dd>도면 좌표를 기준으로 매장 분위기와 이동감을 함께 확인합니다.</dd>
                 </div>
               </dl>
             </div>
@@ -76,25 +77,25 @@
         <section class="page viewer-page" data-page="viewer" hidden>
           <div class="page-heading">
             <p class="eyebrow">Seongsu Perfume Walkthrough</p>
-            <h1>성수 향수매장 360 워크스루</h1>
-            <p>마우스로 좌우와 위아래를 둘러보고, WASD로 도면 안을 이동합니다. 유리문 입구, 조명, 장치, 벽면 이미지가 도면 좌표에 맞춰 보입니다.</p>
+            <h1>성수 향수매장 3D 워크스루</h1>
+            <p>마우스로 시선을 둘러보고 WASD로 같은 도면 안을 이동합니다. 유리문 입구, 진열 선반, 식물, 온도 장치가 실제 도면 좌표에 맞춰 보입니다.</p>
           </div>
 
           <div class="viewer-layout">
             <div class="viewer-stage">
-              <canvas id="viewerCanvas" width="960" height="540" aria-label="도면 기반 360도 공간 뷰어"></canvas>
+              <canvas id="viewerCanvas" width="960" height="540" aria-label="도면 기반 3D 공간 워크스루"></canvas>
               <div class="viewer-controls">
                 <button type="button" data-camera="entry">입구 시점</button>
                 <button type="button" data-camera="curve">곡선 벽</button>
-                <button type="button" data-camera="center">메인 체험존</button>
+                <button type="button" data-camera="center">메인 진열</button>
                 <button type="button" data-camera="north">상단 상담존</button>
-                <button type="button" data-camera="east">우측 하단 방</button>
+                <button type="button" data-camera="east">우측 하단 바</button>
                 <span class="viewer-help">WASD 이동 · 드래그 시선</span>
               </div>
             </div>
 
             <aside class="viewer-side">
-              <canvas id="viewerMapCanvas" width="372" height="480" aria-label="360도 뷰어 위치 도면"></canvas>
+              <canvas id="viewerMapCanvas" width="372" height="480" aria-label="3D 워크스루 위치 도면"></canvas>
               <div class="info-panel" id="viewerInfo">
                 <strong>도면 기반 요소</strong>
                 <span>뷰어에서 보이는 마커를 클릭하면 요소 설명을 표시합니다.</span>
@@ -123,7 +124,7 @@
               <div class="control-block control-block-compact">
                 <h3>도구</h3>
                 <div class="tool-buttons" id="toolButtons"></div>
-                <p class="hint">도구 선택 후 도면 클릭. 선택된 출발점·도착점은 클릭 위치로 이동합니다.</p>
+                <p class="hint">도구 선택 후 도면 클릭. 선택된 출발점·도착점·장치는 클릭 위치로 이동합니다.</p>
               </div>
 
               <div class="control-block">
@@ -178,7 +179,7 @@
 
             <div class="canvas-wrap">
               <div class="map-toolbar">
-                <strong>설계도 맵</strong>
+                <strong>설계 맵</strong>
                 <div class="map-status-strip" aria-label="시뮬레이션 상태">
                   <span>평균 <b id="mapGoalScore">0%</b></span>
                   <span>시간 <b id="mapTimer">0.0초</b></span>
