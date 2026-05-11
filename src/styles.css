@@ -97,7 +97,7 @@ button {
 
 .hero {
   display: grid;
-  min-height: 76vh;
+  min-height: calc(100vh - 66px);
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   border-bottom: 1px solid var(--line);
@@ -198,6 +198,8 @@ h2 {
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
 .hero-summary dd {
   margin: 0;
   max-width: 240px;
