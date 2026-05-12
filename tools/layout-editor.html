@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scent Space Layout Editor</title>
+    <style>
+      :root {
+        --navy: #172132;
+        --paper: #f7efe2;
+        --cream: #fffaf1;
+        --terracotta: #b56f4d;
+        --brass: #c7a15b;
+        --line: rgba(23, 33, 50, 0.16);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--navy);
+        font-family: Inter, Pretendard, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(640px, 1fr) 390px;
+        min-height: 100vh;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 14px;
+        padding: 18px;
+        background: var(--navy);
+        color: var(--cream);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .title { display: grid; gap: 3px; }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.15;
+      }
+
+      .title span,
+      .status {
+        color: rgba(255, 250, 241, 0.7);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .canvas-shell {
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(255, 250, 241, 0.18);
+        border-radius: 8px;
+        background: #101827;
+      }
+
+      #planCanvas {
+        width: auto;
+        max-width: 100%;
+        height: calc(100vh - 104px);
+        max-height: calc(100vh - 104px);
+        border-radius: 6px;
+        background: var(--cream);
+        cursor: crosshair;
+      }
+
+      .panel {
+        display: grid;
+        grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+        gap: 14px;
+        overflow: hidden;
+        padding: 18px;
+        border-left: 1px solid var(--line);
+        background: var(--cream);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .hint {
+        margin: 6px 0 0;
+        color: rgba(23, 33, 50, 0.62);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      label {
+        display: grid;
+        gap: 5px;
+        color: rgba(23, 33, 50, 0.72);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: white;
+        color: var(--navy);
+        padding: 9px 10px;
+        font: inherit;
+        font-size: 13px;
+      }
+
+      textarea {
+        min-height: 150px;
+        resize: none;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+      }
+
+      .actions,
+      .rotate-actions,
+      .save-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .rotate-actions {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      button {
+        min-height: 38px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: var(--navy);
+        color: var(--cream);
+        font-weight: 900;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        border-color: var(--line);
+        background: white;
+        color: var(--navy);
+      }
+
+      .preview {
+        display: grid;
+        grid-template-columns: 132px 1fr;
+        gap: 12px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      #previewCanvas {
+        width: 132px;
+        height: 132px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fffaf1;
+      }
+
+      .preview strong {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .preview span {
+        display: block;
+        color: rgba(23, 33, 50, 0.62);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .object-list {
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .object-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        width: 100%;
+        min-height: 42px;
+        border: 0;
+        border-bottom: 1px solid rgba(23, 33, 50, 0.08);
+        border-radius: 0;
+        background: transparent;
+        color: var(--navy);
+        padding: 8px 10px;
+        text-align: left;
+      }
+
+      .object-row.is-selected { background: rgba(199, 161, 91, 0.22); }
+      .object-row strong { display: block; font-size: 12px; }
+      .object-row span { color: rgba(23, 33, 50, 0.58); font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section class="workspace">
+        <div class="topbar">
+          <div class="title">
+            <h1>Scent Space 배치 편집기</h1>
+            <span>3D 뷰어 오브젝트를 2D 도면 위에서 배치합니다. 자동저장이 켜져 있습니다.</span>
+          </div>
+          <div class="status" id="status">준비됨</div>
+        </div>
+        <div class="canvas-shell">
+          <canvas id="planCanvas" width="744" height="960"></canvas>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div>
+          <h2>오브젝트 배치</h2>
+          <p class="hint">도면에서 오브젝트를 드래그하세요. 빈 곳을 클릭하면 선택된 오브젝트가 그 좌표로 이동합니다. 기본 이동은 종류와 상관없이 입력한 좌표 그대로 반영됩니다.</p>
+        </div>
+
+        <div class="fields">
+          <label>종류<select id="kind"></select></label>
+          <label>추가 개수<input id="count" type="number" min="1" max="40" value="1"></label>
+          <label>X<input id="x" type="number" min="0" max="744" step="1"></label>
+          <label>Y<input id="y" type="number" min="0" max="960" step="1"></label>
+          <label>방향 deg<input id="angle" type="number" min="-180" max="180" step="1"></label>
+          <label>크기<input id="scale" type="number" min="0.35" max="3" step="0.05"></label>
+        </div>
+
+        <div class="rotate-actions">
+          <button class="secondary" id="rotLeft">-15</button>
+          <button class="secondary" id="rotRight">+15</button>
+          <button class="secondary" id="rotSnap">90도 맞춤</button>
+          <button class="secondary" id="faceWall">벽 방향</button>
+        </div>
+
+        <div class="preview">
+          <canvas id="previewCanvas" width="180" height="180"></canvas>
+          <div>
+            <strong>2.5D 미리보기</strong>
+            <span id="previewText">오브젝트를 선택하거나 이동하면 벽과 방향 관계를 간단히 보여줍니다.</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="add">추가</button>
+          <button id="duplicate" class="secondary">복제</button>
+          <button id="remove" class="secondary">삭제</button>
+          <button id="reset" class="secondary">초기화</button>
+        </div>
+
+        <div class="object-list" id="objectList"></div>
+
+        <div>
+          <div class="save-actions">
+            <button id="copy">viewer-layout.js 복사</button>
+            <button id="download" class="secondary">다운로드</button>
+            <button id="exportJson" class="secondary">JSON 내보내기</button>
+            <label class="secondary" style="display:grid;place-items:center;min-height:38px;border:1px solid var(--line);border-radius:7px;background:white;color:var(--navy);cursor:pointer;">
+              가져오기
+              <input id="importFile" type="file" accept=".json,.js" hidden>
+            </label>
+          </div>
+          <textarea id="output" readonly></textarea>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module">
+      import {
+        PLAN_HEIGHT,
+        PLAN_WIDTH,
+        distanceToSegment,
+        drawFloorPlan,
+        getWallLines,
+        isWalkable,
+      } from "../src/floorplan.js";
+      import { viewerElements } from "../src/viewer-layout.js";
+
+      const storageKey = "scent-space-layout-editor";
+      const clearance = 18;
+      const infoKinds = new Set(["glass-door", "exit-door", "window", "partition", "fan", "cooler", "thermometer"]);
+      const objectTypes = [
+        ["glass-door", "입구 양문"],
+        ["exit-door", "출구 문"],
+        ["window", "창문"],
+        ["partition", "가벽"],
+        ["shelf", "향수 선반"],
+        ["counter", "진열대"],
+        ["round-table", "원형 테이블"],
+        ["plant", "식물"],
+        ["fan", "서큘레이터"],
+        ["cooler", "공조기"],
+        ["thermometer", "온도계"],
+        ["hotspot", "동선 마커"],
+        ["mural", "니치 패널"],
+      ];
+      const labels = {
+        "glass-door": "입구",
+        "exit-door": "출구",
+        window: "창문",
+        partition: "가벽",
+        shelf: "선반",
+        counter: "진열",
+        "round-table": "테이블",
+        plant: "식물",
+        fan: "순환",
+        cooler: "공조",
+        thermometer: "온도계",
+        hotspot: "동선",
+        mural: "니치",
+      };
+      const wallPiercingKinds = new Set(["glass-door", "exit-door", "window"]);
+      const wallNearbyKinds = new Set(["shelf", "counter", "mural", "cooler", "thermometer"]);
+      const wallBoundKinds = new Set([...wallPiercingKinds, ...wallNearbyKinds]);
+
+      const els = {
+        canvas: document.querySelector("#planCanvas"),
+        preview: document.querySelector("#previewCanvas"),
+        previewText: document.querySelector("#previewText"),
+        status: document.querySelector("#status"),
+        kind: document.querySelector("#kind"),
+        count: document.querySelector("#count"),
+        x: document.querySelector("#x"),
+        y: document.querySelector("#y"),
+        angle: document.querySelector("#angle"),
+        scale: document.querySelector("#scale"),
+        rotLeft: document.querySelector("#rotLeft"),
+        rotRight: document.querySelector("#rotRight"),
+        rotSnap: document.querySelector("#rotSnap"),
+        faceWall: document.querySelector("#faceWall"),
+        add: document.querySelector("#add"),
+        duplicate: document.querySelector("#duplicate"),
+        remove: document.querySelector("#remove"),
+        reset: document.querySelector("#reset"),
+        copy: document.querySelector("#copy"),
+        download: document.querySelector("#download"),
+        exportJson: document.querySelector("#exportJson"),
+        importFile: document.querySelector("#importFile"),
+        output: document.querySelector("#output"),
+        list: document.querySelector("#objectList"),
+      };
+      const ctx = els.canvas.getContext("2d");
+      const previewCtx = els.preview.getContext("2d");
+
+      let items = loadInitialItems();
+      let selectedKey = items[0]?.key ?? "";
+      let dragging = false;
+      let saveTimer = null;
+
+      els.kind.innerHTML = objectTypes.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+
+      function loadInitialItems() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+          if (Array.isArray(saved)) return saved.map((item) => ({ scale: 1, ...item }));
+        } catch {}
+        return viewerElements.map((item) => ({ scale: 1, ...item }));
+      }
+
+      function saveNow(message = "Saved") {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+        els.status.textContent = `${message} ${new Date().toLocaleTimeString()}`;
+      }
+
+      function scheduleSave() {
+        window.clearTimeout(saveTimer);
+        els.status.textContent = "자동저장 중...";
+        saveTimer = window.setTimeout(() => saveNow("자동저장됨"), 250);
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function uid(kind) {
+        return `${kind}-${Math.random().toString(36).slice(2, 9)}`;
+      }
+
+      function selected() {
+        return items.find((item) => item.key === selectedKey) ?? items[0];
+      }
+
+      function kindName(kind) {
+        return objectTypes.find(([value]) => value === kind)?.[1] ?? kind;
+      }
+
+      function defaultLabel(kind) {
+        return labels[kind] ?? kind;
+      }
+
+      function objectRadius(item) {
+        const base = wallBoundKinds.has(item.kind) ? 22 : 16;
+        return base * (item.scale ?? 1);
+      }
+
+      function canvasPoint(event) {
+        const rect = els.canvas.getBoundingClientRect();
+        return {
+          x: clamp(((event.clientX - rect.left) / rect.width) * PLAN_WIDTH, 0, PLAN_WIDTH),
+          y: clamp(((event.clientY - rect.top) / rect.height) * PLAN_HEIGHT, 0, PLAN_HEIGHT),
+        };
+      }
+
+      function wallDistance(point, line) {
+        return distanceToSegment(point.x, point.y, line[0], line[1], line[2], line[3]);
+      }
+
+      function nearestWall(point) {
+        let best = null;
+        let bestDistance = Infinity;
+        for (const line of getWallLines([])) {
+          const d = wallDistance(point, line);
+          if (d < bestDistance) {
+            bestDistance = d;
+            best = line;
+          }
+        }
+        return best ? { line: best, distance: bestDistance } : null;
+      }
+
+      function wallNormalFromLine(line, point) {
+        const [x1, y1, x2, y2] = line;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const normals = [
+          { x: -dy, y: dx },
+          { x: dy, y: -dx },
+        ];
+        let best = normals[0];
+        let bestScore = -Infinity;
+        for (const normal of normals) {
+          const len = Math.hypot(normal.x, normal.y) || 1;
+          const nx = normal.x / len;
+          const ny = normal.y / len;
+          const probe = { x: point.x + nx * 22, y: point.y + ny * 22 };
+          const score = (isWalkable(probe.x, probe.y, []) ? 1000 : 0) + distanceToWall(probe);
+          if (score > bestScore) {
+            bestScore = score;
+            best = { x: nx, y: ny };
+          }
+        }
+        return best;
+      }
+
+      function distanceToWall(point) {
+        const wall = nearestWall(point);
+        return wall?.distance ?? Infinity;
+      }
+
+      function keepOutsideWalls(point, item) {
+        const radius = objectRadius(item) + clearance;
+        let candidate = { x: clamp(point.x, 0, PLAN_WIDTH), y: clamp(point.y, 0, PLAN_HEIGHT) };
+        for (let i = 0; i < 8; i += 1) {
+          const wall = nearestWall(candidate);
+          if (!wall) break;
+          const blocked = !isWalkable(candidate.x, candidate.y, []) || wall.distance < radius;
+          if (!blocked) break;
+          const normal = wallNormalFromLine(wall.line, candidate);
+          const push = Math.max(radius - wall.distance, 4);
+          candidate = {
+            x: clamp(candidate.x + normal.x * push, 0, PLAN_WIDTH),
+            y: clamp(candidate.y + normal.y * push, 0, PLAN_HEIGHT),
+          };
+        }
+        return candidate;
+      }
+
+      function closestPointOnSegment(point, line) {
+        const [x1, y1, x2, y2] = line;
+        const vx = x2 - x1;
+        const vy = y2 - y1;
+        const lenSq = vx * vx + vy * vy || 1;
+        const t = clamp(((point.x - x1) * vx + (point.y - y1) * vy) / lenSq, 0, 1);
+        return { x: x1 + vx * t, y: y1 + vy * t };
+      }
+
+      function snapToWallMount(point, item) {
+        const wall = nearestWall(point);
+        if (!wall) return keepOutsideWalls(point, item);
+        const mount = closestPointOnSegment(point, wall.line);
+        const normal = wallNormalFromLine(wall.line, mount);
+        const offset = wallPiercingKinds.has(item.kind) ? 2 : 28;
+        return {
+          x: clamp(mount.x + normal.x * offset, 0, PLAN_WIDTH),
+          y: clamp(mount.y + normal.y * offset, 0, PLAN_HEIGHT),
+        };
+      }
+
+      function snapAngleToWall(item) {
+        const wall = nearestWall(item);
+        if (!wall) return;
+        const [x1, y1, x2, y2] = wall.line;
+        item.angle = Math.atan2(y2 - y1, x2 - x1);
+      }
+
+      function faceNearestWall(item) {
+        const wall = nearestWall(item);
+        if (!wall) return;
+        const normal = wallNormalFromLine(wall.line, item);
+        item.angle = Math.atan2(normal.y, normal.x);
+      }
+
+      function setItemPoint(item, point) {
+        item.x = Math.round(clamp(point.x, 0, PLAN_WIDTH));
+        item.y = Math.round(clamp(point.y, 0, PLAN_HEIGHT));
+      }
+
+      function hitItem(point) {
+        let best = null;
+        let bestDistance = Infinity;
+        for (const item of items) {
+          const distance = Math.hypot(item.x - point.x, item.y - point.y);
+          const threshold = Math.max(24, objectRadius(item));
+          if (distance < threshold && distance < bestDistance) {
+            best = item;
+            bestDistance = distance;
+          }
+        }
+        return best;
+      }
+
+      function normalizeItem(item) {
+        return {
+          key: item.key,
+          x: Math.round(item.x),
+          y: Math.round(item.y),
+          label: item.label ?? defaultLabel(item.kind),
+          kind: item.kind,
+          angle: Number((item.angle ?? 0).toFixed(3)),
+          anchor: item.anchor ?? 0.62,
+          scale: Number((item.scale ?? 1).toFixed(2)),
+          info: item.info !== false,
+        };
+      }
+
+      function outputSource() {
+        const body = JSON.stringify(items.map(normalizeItem), null, 2).replace(/"([^"]+)":/g, "$1:");
+        return `export const viewerElements = ${body};\n`;
+      }
+
+      function updateOutput() {
+        els.output.value = outputSource();
+      }
+
+      function syncForm() {
+        const item = selected();
+        if (!item) return;
+        els.kind.value = item.kind;
+        els.x.value = Math.round(item.x);
+        els.y.value = Math.round(item.y);
+        els.angle.value = Math.round(((item.angle ?? 0) * 180) / Math.PI);
+        els.scale.value = item.scale ?? 1;
+        updateOutput();
+      }
+
+      function drawGrid() {
+        ctx.save();
+        ctx.strokeStyle = "rgba(23,33,50,0.1)";
+        ctx.fillStyle = "rgba(23,33,50,0.45)";
+        ctx.font = "11px ui-monospace, Consolas, monospace";
+        for (let x = 0; x <= PLAN_WIDTH; x += 60) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, PLAN_HEIGHT);
+          ctx.stroke();
+          if (x % 120 === 0) ctx.fillText(String(x), x + 4, 14);
+        }
+        for (let y = 0; y <= PLAN_HEIGHT; y += 60) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(PLAN_WIDTH, y);
+          ctx.stroke();
+          if (y % 120 === 0) ctx.fillText(String(y), 8, y + 13);
+        }
+        ctx.restore();
+      }
+
+      function drawItem(item) {
+        const isSelected = item.key === selectedKey;
+        const radius = objectRadius(item);
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.rotate(item.angle ?? 0);
+        ctx.fillStyle = isSelected ? "#c7a15b" : "#b56f4d";
+        ctx.strokeStyle = isSelected ? "#172132" : "#fffaf1";
+        ctx.lineWidth = isSelected ? 4 : 2.5;
+        if (["glass-door", "exit-door", "window", "shelf", "counter", "partition", "mural"].includes(item.kind)) {
+          ctx.beginPath();
+          ctx.roundRect(-radius * 1.7, -radius * 0.55, radius * 3.4, radius * 1.1, 4);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(radius * 2.2, 0);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(radius * 1.5, 0);
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.fillStyle = "#172132";
+        ctx.font = "700 12px system-ui, sans-serif";
+        ctx.fillText(defaultLabel(item.kind), item.x + 14, item.y - 9);
+      }
+
+      function drawPreview() {
+        const item = selected();
+        previewCtx.clearRect(0, 0, els.preview.width, els.preview.height);
+        previewCtx.fillStyle = "#fffaf1";
+        previewCtx.fillRect(0, 0, els.preview.width, els.preview.height);
+        if (!item) return;
+        const wall = nearestWall(item);
+        const scale = 2.1;
+        previewCtx.save();
+        previewCtx.translate(90, 90);
+        if (wall) {
+          previewCtx.strokeStyle = "#172132";
+          previewCtx.lineWidth = 7;
+          previewCtx.beginPath();
+          previewCtx.moveTo((wall.line[0] - item.x) * scale, (wall.line[1] - item.y) * scale);
+          previewCtx.lineTo((wall.line[2] - item.x) * scale, (wall.line[3] - item.y) * scale);
+          previewCtx.stroke();
+        }
+        previewCtx.rotate(item.angle ?? 0);
+        previewCtx.fillStyle = "#b56f4d";
+        previewCtx.strokeStyle = "#172132";
+        previewCtx.lineWidth = 3;
+        previewCtx.beginPath();
+        previewCtx.roundRect(-34, -14, 68, 28, 5);
+        previewCtx.fill();
+        previewCtx.stroke();
+        previewCtx.beginPath();
+        previewCtx.moveTo(0, 0);
+        previewCtx.lineTo(54, 0);
+        previewCtx.stroke();
+        previewCtx.restore();
+        els.previewText.textContent = `x ${Math.round(item.x)} / y ${Math.round(item.y)} / 방향 ${Math.round(((item.angle ?? 0) * 180) / Math.PI)}도 / 벽 거리 ${Math.round(wall?.distance ?? 0)}px`;
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, PLAN_WIDTH, PLAN_HEIGHT);
+        drawFloorPlan(ctx, []);
+        drawGrid();
+        items.forEach(drawItem);
+        drawPreview();
+      }
+
+      function renderList() {
+        els.list.innerHTML = "";
+        for (const item of items) {
+          const button = document.createElement("button");
+          button.className = `object-row${item.key === selectedKey ? " is-selected" : ""}`;
+          button.innerHTML = `<span><strong>${defaultLabel(item.kind)} / ${item.key}</strong><span>x ${Math.round(item.x)} / y ${Math.round(item.y)} / ${kindName(item.kind)}</span></span><span>${Math.round(((item.angle ?? 0) * 180) / Math.PI)}도</span>`;
+          button.addEventListener("click", () => {
+            selectedKey = item.key;
+            refresh();
+          });
+          els.list.appendChild(button);
+        }
+      }
+
+      function refresh(message = "") {
+        draw();
+        renderList();
+        syncForm();
+        scheduleSave();
+        if (message) els.status.textContent = message;
+      }
+
+      function applyForm() {
+        const item = selected();
+        if (!item) return;
+        item.kind = els.kind.value;
+        item.label = defaultLabel(item.kind);
+        item.scale = clamp(Number(els.scale.value) || 1, 0.35, 3);
+        item.angle = ((Number(els.angle.value) || 0) * Math.PI) / 180;
+        item.info = infoKinds.has(item.kind);
+        setItemPoint(item, { x: Number(els.x.value) || item.x, y: Number(els.y.value) || item.y });
+        refresh("수정됨");
+      }
+
+      function addObjects(at = null) {
+        const kind = els.kind.value || "shelf";
+        const count = clamp(Number(els.count.value) || 1, 1, 40);
+        const base = at ?? selected() ?? { x: PLAN_WIDTH / 2, y: PLAN_HEIGHT / 2 };
+        for (let i = 0; i < count; i += 1) {
+          const item = {
+            key: uid(kind),
+            x: base.x + (i % 8) * 34,
+            y: base.y + Math.floor(i / 8) * 34,
+            label: defaultLabel(kind),
+            kind,
+            angle: ((Number(els.angle.value) || 0) * Math.PI) / 180,
+            anchor: 0.62,
+            scale: clamp(Number(els.scale.value) || 1, 0.35, 3),
+            info: infoKinds.has(kind),
+          };
+          setItemPoint(item, item);
+          items.push(item);
+        }
+        selectedKey = items.at(-1).key;
+        refresh("추가됨");
+      }
+
+      function rotateSelected(deltaDeg) {
+        const item = selected();
+        if (!item) return;
+        item.angle = (item.angle ?? 0) + (deltaDeg * Math.PI) / 180;
+        refresh("회전됨");
+      }
+
+      els.canvas.addEventListener("pointerdown", (event) => {
+        const point = canvasPoint(event);
+        const hit = hitItem(point);
+        if (hit) {
+          selectedKey = hit.key;
+          dragging = true;
+          els.canvas.setPointerCapture(event.pointerId);
+        } else {
+          const item = selected();
+          if (item) setItemPoint(item, point);
+        }
+        refresh("이동됨");
+      });
+
+      els.canvas.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const item = selected();
+        if (!item) return;
+        setItemPoint(item, canvasPoint(event));
+        refresh("드래그 중");
+      });
+      els.canvas.addEventListener("pointerup", () => { dragging = false; });
+      els.canvas.addEventListener("pointerleave", () => { dragging = false; });
+
+      [els.kind, els.x, els.y, els.angle, els.scale].forEach((input) => {
+        input.addEventListener("change", applyForm);
+        input.addEventListener("input", () => {
+          if (input !== els.kind) applyForm();
+        });
+      });
+
+      els.rotLeft.addEventListener("click", () => rotateSelected(-15));
+      els.rotRight.addEventListener("click", () => rotateSelected(15));
+      els.rotSnap.addEventListener("click", () => {
+        const item = selected();
+        if (!item) return;
+        const deg = Math.round(((item.angle ?? 0) * 180) / Math.PI / 90) * 90;
+        item.angle = (deg * Math.PI) / 180;
+        refresh("90도 맞춤");
+      });
+      els.faceWall.addEventListener("click", () => {
+        const item = selected();
+        if (!item) return;
+        faceNearestWall(item);
+        refresh("벽 방향 맞춤");
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return;
+        if (event.key === "q") rotateSelected(-15);
+        if (event.key === "e") rotateSelected(15);
+      });
+
+      els.add.addEventListener("click", () => addObjects());
+      els.duplicate.addEventListener("click", () => {
+        const item = selected();
+        if (!item) return;
+        const clone = { ...item, key: uid(item.kind) };
+        setItemPoint(clone, { x: item.x + 34, y: item.y + 34 });
+        items.push(clone);
+        selectedKey = clone.key;
+        refresh("복제됨");
+      });
+      els.remove.addEventListener("click", () => {
+        const index = items.findIndex((item) => item.key === selectedKey);
+        if (index < 0) return;
+        items.splice(index, 1);
+        selectedKey = items[Math.max(0, index - 1)]?.key ?? "";
+        refresh("삭제됨");
+      });
+      els.reset.addEventListener("click", () => {
+        items = viewerElements.map((item) => ({ scale: 1, ...item }));
+        selectedKey = items[0]?.key ?? "";
+        refresh("초기화됨");
+      });
+      els.copy.addEventListener("click", async () => {
+        updateOutput();
+        els.output.select();
+        try {
+          await navigator.clipboard.writeText(els.output.value);
+        } catch {
+          document.execCommand("copy");
+        }
+        saveNow("복사됨");
+      });
+      els.download.addEventListener("click", () => {
+        updateOutput();
+        const blob = new Blob([els.output.value], { type: "text/javascript" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "viewer-layout.js";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+      els.exportJson.addEventListener("click", () => {
+        const blob = new Blob([JSON.stringify(items.map(normalizeItem), null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "viewer-layout.json";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+      els.importFile.addEventListener("change", async () => {
+        const file = els.importFile.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        const jsonText = text.includes("export const viewerElements") ? text.slice(text.indexOf("[")).replace(/;\s*$/, "") : text;
+        items = JSON.parse(jsonText).map((item) => ({ scale: 1, ...item }));
+        selectedKey = items[0]?.key ?? "";
+        refresh("가져옴");
+      });
+
+      refresh("준비됨");
+      saveNow("자동저장됨");
+    </script>
+  </body>
+</html>

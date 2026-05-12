@@ -10,6 +10,7 @@
   toggleableFloorplanWalls,
 } from "./floorplan.js";
 import { createSimulation } from "./simulation.js";
+import { viewerElements } from "./viewer-layout.js";
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js";
 
 const MAX_POINTS = 10;
@@ -81,6 +82,7 @@ const viewer = {
   canvas: document.querySelector("#viewerCanvas"),
   map: document.querySelector("#viewerMapCanvas"),
   info: document.querySelector("#viewerInfo"),
+  coord: document.querySelector("#viewerCoordinateHud"),
   yaw: -1.52,
   pitch: 0,
   camera: { x: 390, y: 805 },
@@ -88,7 +90,9 @@ const viewer = {
   marker: null,
   keys: new Set(),
   lastMoveAt: 0,
+  coordCopyTimer: null,
 };
+
 
 const VIEWER_FOV = Math.PI * 0.72;
 const VIEWER_COLLISION_RADIUS = 15;
@@ -103,24 +107,6 @@ const cameras = {
   north: { x: 392, y: 235, yaw: 1.95 },
   east: { x: 560, y: 820, yaw: -2.3 },
 };
-
-const viewerElements = [
-  { key: "entrance", x: 584, y: 930, label: "입구", kind: "glass-door", angle: 0, anchor: 0.62, info: true },
-  { key: "exit", x: 552, y: 835, label: "출구", kind: "exit-door", angle: Math.PI / 2, anchor: 0.64, info: true },
-  { key: "window", x: 214, y: 822, label: "창문", kind: "window", angle: 0, anchor: 0.64, info: true },
-  { key: "fan", x: 245, y: 665, label: "순환", kind: "fan", angle: -0.45, anchor: 0.74, info: true },
-  { key: "thermometer", x: 170, y: 728, label: "온도계", kind: "thermometer", angle: 0.15, anchor: 0.74, info: true },
-  { key: "cooler", x: 404, y: 210, label: "공조", kind: "cooler", angle: Math.PI, anchor: 0.72, info: true },
-  { key: "partition-note", x: 230, y: 530, label: "가벽", kind: "partition", anchor: 0.72, info: true },
-  { key: "mural", x: 318, y: 760, label: "니치", kind: "mural", angle: Math.PI / 2, anchor: 0.42, info: false },
-  { key: "wall-shelf-a", x: 318, y: 620, label: "선반", kind: "shelf", angle: Math.PI / 2, anchor: 0.52, info: false },
-  { key: "wall-shelf-b", x: 496, y: 820, label: "선반", kind: "shelf", angle: -Math.PI / 2, anchor: 0.52, info: false },
-  { key: "center-counter", x: 382, y: 720, label: "진열", kind: "counter", angle: -0.16, anchor: 0.5, info: false },
-  { key: "low-table", x: 470, y: 690, label: "테이블", kind: "round-table", angle: 0, anchor: 0.5, info: false },
-  { key: "plant-entry", x: 208, y: 760, label: "식물", kind: "plant", angle: 0.25, anchor: 0.74, info: false },
-  { key: "plant-north", x: 430, y: 258, label: "식물", kind: "plant", angle: -0.2, anchor: 0.72, info: false },
-  { key: "route", x: 292, y: 760, label: "동선", kind: "hotspot", anchor: 0.78, info: false },
-];
 
 const VIEWER_WORLD_SCALE = 0.045;
 const VIEWER_EYE_HEIGHT = 1.62;
@@ -274,6 +260,45 @@ function moveViewerCamera(dx, dy) {
   const nextY = viewer.camera.y + dy;
   if (canViewerStandAt(nextX, viewer.camera.y)) viewer.camera.x = nextX;
   if (canViewerStandAt(viewer.camera.x, nextY)) viewer.camera.y = nextY;
+  updateViewerCoordinateHud();
+}
+
+function getViewerCoordinateText() {
+  const yawDeg = Math.round((normalizeAngle(viewer.yaw) * 180) / Math.PI);
+  return `x ${Math.round(viewer.camera.x)} · y ${Math.round(viewer.camera.y)} · yaw ${yawDeg}°`;
+}
+
+function updateViewerCoordinateHud(status = "") {
+  if (!viewer.coord) return;
+  const coordText = getViewerCoordinateText();
+  viewer.coord.textContent = status ? `${coordText} · ${status}` : coordText;
+  viewer.coord.setAttribute("aria-label", `${coordText} 클릭하면 좌표가 복사됩니다`);
+}
+
+async function copyViewerCoordinate() {
+  if (!viewer.coord) return;
+  const coordText = getViewerCoordinateText();
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(coordText);
+    } else {
+      const scratch = document.createElement("textarea");
+      scratch.value = coordText;
+      scratch.setAttribute("readonly", "");
+      scratch.style.position = "fixed";
+      scratch.style.left = "-9999px";
+      document.body.appendChild(scratch);
+      scratch.select();
+      document.execCommand("copy");
+      scratch.remove();
+    }
+    updateViewerCoordinateHud("복사됨");
+  } catch (error) {
+    console.warn("Coordinate copy failed", error);
+    updateViewerCoordinateHud("복사 실패");
+  }
+  window.clearTimeout(viewer.coordCopyTimer);
+  viewer.coordCopyTimer = window.setTimeout(() => updateViewerCoordinateHud(), 1200);
 }
 
 function updateViewerMovement(now) {
@@ -450,18 +475,36 @@ function drawWallObject(ctx, item) {
     glass.addColorStop(0, "rgba(226,246,255,0.72)");
     glass.addColorStop(0.48, "rgba(255,250,242,0.18)");
     glass.addColorStop(1, "rgba(69,92,96,0.46)");
+    ctx.save();
+    ctx.translate(-26, 0);
+    ctx.rotate(-0.12);
     ctx.fillStyle = glass;
     ctx.beginPath();
-    ctx.roundRect(-54, -78, 108, 126, 9);
+    ctx.roundRect(-30, -78, 58, 126, 8);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,250,242,0.62)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(32,25,20,0.55)";
+    ctx.fillRect(24, -78, 6, 126);
+    ctx.fillStyle = "rgba(255,255,255,0.38)";
+    ctx.fillRect(-16, -60, 7, 86);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(26, 0);
+    ctx.rotate(0.12);
+    ctx.fillStyle = glass;
+    ctx.beginPath();
+    ctx.roundRect(-28, -78, 58, 126, 8);
     ctx.fill();
     ctx.strokeStyle = "rgba(255,250,242,0.62)";
     ctx.lineWidth = 4;
     ctx.stroke();
     ctx.fillStyle = "rgba(255,255,255,0.38)";
-    ctx.fillRect(-34, -60, 8, 86);
-    ctx.fillRect(18, -60, 8, 86);
+    ctx.fillRect(9, -60, 7, 86);
     ctx.fillStyle = "rgba(32,25,20,0.55)";
-    ctx.fillRect(-4, -78, 8, 126);
+    ctx.fillRect(-30, -78, 6, 126);
+    ctx.restore();
   } else if (item.kind === "partition") {
     const partition = ctx.createLinearGradient(-44, -34, 44, 42);
     partition.addColorStop(0, "rgba(118,92,74,0.86)");
@@ -851,18 +894,45 @@ function createViewerObjectMesh(item) {
     handle.position.set(0.34, 1.16, 0.08);
     group.add(handle);
   } else if (item.kind === "glass-door") {
-    const door = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.65, 0.08), new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45, transmission: 0.25 }));
-    door.position.y = 1.45;
-    group.add(door);
+    const glassMaterial = new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45, transmission: 0.25 });
     const frameMaterial = makeViewerMaterial(viewerPalette.navy, 0.62);
+    const jambMaterial = makeViewerMaterial(viewerPalette.navy, 0.54, 0.08);
+    const makeDoorLeaf = (side) => {
+      const hinge = new THREE.Group();
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.96, 3.16, 0.055), glassMaterial);
+      glass.position.set(side * -0.48, 1.68, 0);
+      hinge.add(glass);
+      [
+        { x: side * -0.98, y: 1.68, w: 0.07, h: 3.34 },
+        { x: side * -0.04, y: 1.68, w: 0.07, h: 3.34 },
+        { x: side * -0.51, y: 3.35, w: 1.02, h: 0.07 },
+        { x: side * -0.51, y: 0.01, w: 1.02, h: 0.07 },
+      ].forEach((part) => {
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.12), frameMaterial);
+        frame.position.set(part.x, part.y, 0.02);
+        hinge.add(frame);
+      });
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.32, 12), makeViewerMaterial(viewerPalette.brass, 0.36, 0.22));
+      handle.rotation.x = Math.PI / 2;
+      handle.position.set(side * -0.25, 1.48, 0.08);
+      hinge.add(handle);
+      hinge.position.set(side * 1.1, 0, 0.1);
+      hinge.rotation.y = side * -0.36;
+      return hinge;
+    };
+    const recessedBack = new THREE.Mesh(new THREE.BoxGeometry(2.72, 3.58, 0.08), makeViewerMaterial(viewerPalette.plasterAlt, 0.86));
+    recessedBack.position.set(0, 1.78, -0.08);
+    group.add(recessedBack);
+    group.add(makeDoorLeaf(-1));
+    group.add(makeDoorLeaf(1));
     [
-      { x: -0.92, y: 1.45, w: 0.08, h: 2.82 },
-      { x: 0.92, y: 1.45, w: 0.08, h: 2.82 },
-      { x: 0, y: 2.84, w: 1.92, h: 0.08 },
-      { x: 0, y: 0.06, w: 1.92, h: 0.08 },
+      { x: -1.35, y: 1.78, w: 0.18, h: 3.56, z: 0.02 },
+      { x: 1.35, y: 1.78, w: 0.18, h: 3.56, z: 0.02 },
+      { x: 0, y: 3.56, w: 2.88, h: 0.18, z: 0.02 },
+      { x: 0, y: 0.03, w: 2.88, h: 0.08, z: 0.04 },
     ].forEach((part) => {
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.14), frameMaterial);
-      frame.position.set(part.x, part.y, 0.02);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.18), jambMaterial);
+      frame.position.set(part.x, part.y, part.z);
       group.add(frame);
     });
   } else {
@@ -899,6 +969,7 @@ function rebuildViewerScene() {
     const position = planToWorld(item.x, item.y);
     mesh.position.set(position.x, 0, position.z);
     mesh.rotation.y = -(item.angle ?? 0);
+    mesh.scale.setScalar(item.scale ?? 1);
     group.add(mesh);
   });
 
@@ -958,6 +1029,7 @@ function renderViewer3D() {
 }
 
 function drawViewer() {
+  updateViewerCoordinateHud();
   renderViewer3D();
   drawViewerMap();
 }
@@ -1037,6 +1109,7 @@ function initViewer() {
       const preset = cameras[button.dataset.camera];
       viewer.camera = { x: preset.x, y: preset.y };
       viewer.yaw = preset.yaw;
+      updateViewerCoordinateHud();
       drawViewer();
     });
   });
@@ -1048,6 +1121,7 @@ function initViewer() {
     if (!viewer.dragging) return;
     viewer.yaw = viewer.dragging.yaw - (event.clientX - viewer.dragging.x) * 0.008;
     viewer.pitch = clamp(viewer.dragging.pitch + (event.clientY - viewer.dragging.y) * 0.0046, -VIEWER_MAX_PITCH, VIEWER_MAX_PITCH);
+    updateViewerCoordinateHud();
     drawViewer();
   });
   viewer.canvas?.addEventListener("pointerup", () => {
@@ -1070,6 +1144,12 @@ function initViewer() {
     viewer3d.sceneKey = "";
     drawViewer();
   });
+  viewer.coord?.addEventListener("click", copyViewerCoordinate);
+  viewer.coord?.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    copyViewerCoordinate();
+  });
   window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     if (!["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) return;
@@ -1080,6 +1160,7 @@ function initViewer() {
   window.addEventListener("keyup", (event) => {
     viewer.keys.delete(event.key.toLowerCase());
   });
+  updateViewerCoordinateHud();
   drawViewer();
 }
 
