@@ -303,6 +303,7 @@
       import { viewerElements } from "../src/viewer-layout.js";
 
       const storageKey = "scent-space-layout-editor";
+      const sourceSignature = JSON.stringify(viewerElements);
       const clearance = 18;
       const infoKinds = new Set(["glass-door", "exit-door", "window", "partition", "fan", "cooler", "thermometer"]);
       const objectTypes = [
@@ -378,13 +379,15 @@
       function loadInitialItems() {
         try {
           const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
-          if (Array.isArray(saved)) return saved.map((item) => ({ scale: 1, ...item }));
+          if (saved?.sourceSignature === sourceSignature && Array.isArray(saved.items)) {
+            return saved.items.map((item) => ({ scale: 1, ...item }));
+          }
         } catch {}
         return viewerElements.map((item) => ({ scale: 1, ...item }));
       }
 
       function saveNow(message = "Saved") {
-        localStorage.setItem(storageKey, JSON.stringify(items));
+        localStorage.setItem(storageKey, JSON.stringify({ sourceSignature, items }));
         els.status.textContent = `${message} ${new Date().toLocaleTimeString()}`;
       }
 
@@ -612,12 +615,12 @@
         ctx.lineWidth = isSelected ? 4 : 2.5;
         if (["glass-door", "exit-door", "window", "shelf", "counter", "partition", "mural"].includes(item.kind)) {
           ctx.beginPath();
-          ctx.roundRect(-radius * 1.7, -radius * 0.55, radius * 3.4, radius * 1.1, 4);
+          ctx.roundRect(-radius * 0.62, -radius * 1.7, radius * 1.24, radius * 3.4, 4);
           ctx.fill();
           ctx.stroke();
           ctx.beginPath();
           ctx.moveTo(0, 0);
-          ctx.lineTo(radius * 2.2, 0);
+          ctx.lineTo(radius * 1.9, 0);
           ctx.stroke();
         } else {
           ctx.beginPath();
@@ -658,7 +661,7 @@
         previewCtx.strokeStyle = "#172132";
         previewCtx.lineWidth = 3;
         previewCtx.beginPath();
-        previewCtx.roundRect(-34, -14, 68, 28, 5);
+        previewCtx.roundRect(-14, -34, 28, 68, 5);
         previewCtx.fill();
         previewCtx.stroke();
         previewCtx.beginPath();

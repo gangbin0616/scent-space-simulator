@@ -897,6 +897,12 @@ function createViewerObjectMesh(item) {
     const glassMaterial = new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45, transmission: 0.25 });
     const frameMaterial = makeViewerMaterial(viewerPalette.navy, 0.62);
     const jambMaterial = makeViewerMaterial(viewerPalette.navy, 0.54, 0.08);
+    const exterior = new THREE.Mesh(new THREE.BoxGeometry(2.62, 3.42, 0.045), makeViewerMaterial(0xf2d9ad, 0.88));
+    exterior.position.set(0, 1.76, -0.16);
+    group.add(exterior);
+    const exteriorGlow = new THREE.Mesh(new THREE.BoxGeometry(2.38, 3.12, 0.035), new THREE.MeshBasicMaterial({ color: 0xffefc5, transparent: true, opacity: 0.32 }));
+    exteriorGlow.position.set(0, 1.76, -0.125);
+    group.add(exteriorGlow);
     const makeDoorLeaf = (side) => {
       const hinge = new THREE.Group();
       const glass = new THREE.Mesh(new THREE.BoxGeometry(0.96, 3.16, 0.055), glassMaterial);
@@ -968,7 +974,7 @@ function rebuildViewerScene() {
     const mesh = createViewerObjectMesh(item);
     const position = planToWorld(item.x, item.y);
     mesh.position.set(position.x, 0, position.z);
-    mesh.rotation.y = -(item.angle ?? 0);
+    mesh.rotation.y = Math.PI / 2 - (item.angle ?? 0);
     mesh.scale.setScalar(item.scale ?? 1);
     group.add(mesh);
   });
