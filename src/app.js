@@ -176,15 +176,40 @@ const viewerTextures = {
     }
   }),
   floor: makeTextureCanvas(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = "#d6cec2";
+    ctx.fillStyle = "#cfc2b0";
     ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 42) {
-      ctx.fillStyle = "rgba(255,250,241,0.22)";
-      ctx.fillRect(0, y, w, 2);
+    for (let i = 0; i < 180; i += 1) {
+      const alpha = 0.025 + (i % 4) * 0.006;
+      ctx.fillStyle = i % 3 ? `rgba(87,67,49,${alpha})` : `rgba(239,226,207,${alpha})`;
+      ctx.fillRect((i * 37) % w, (i * 53) % h, 1 + (i % 5), 1 + (i % 3));
     }
-    for (let x = 0; x < w; x += 64) {
-      ctx.fillStyle = "rgba(90,70,48,0.06)";
+    for (let y = 0; y < h; y += 54) {
+      ctx.fillStyle = "rgba(92,72,51,0.075)";
+      ctx.fillRect(0, y, w, 1);
+      ctx.fillStyle = "rgba(238,225,205,0.06)";
+      ctx.fillRect(0, y + 2, w, 1);
+    }
+    for (let x = 0; x < w; x += 86) {
+      ctx.fillStyle = "rgba(68,52,38,0.055)";
       ctx.fillRect(x, 0, 1, h);
+    }
+  }),
+  ceiling: makeTextureCanvas(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = "#eadfce";
+    ctx.fillRect(0, 0, w, h);
+    for (let y = 28; y < h; y += 64) {
+      ctx.fillStyle = "rgba(138,110,82,0.09)";
+      ctx.fillRect(0, y, w, 1);
+      ctx.fillStyle = "rgba(255,250,241,0.16)";
+      ctx.fillRect(0, y + 1, w, 1);
+    }
+    for (let x = 34; x < w; x += 72) {
+      ctx.fillStyle = "rgba(138,110,82,0.055)";
+      ctx.fillRect(x, 0, 1, h);
+    }
+    for (let i = 0; i < 90; i += 1) {
+      ctx.fillStyle = i % 2 ? "rgba(93,73,52,0.025)" : "rgba(255,250,241,0.04)";
+      ctx.fillRect((i * 61) % w, (i * 29) % h, 2, 1);
     }
   }),
   mural: makeTextureCanvas(512, 320, (ctx, w, h) => {
@@ -765,7 +790,7 @@ function addWallMesh(group, line, index) {
   if (cursor < length - VIEWER_OPENING_EDGE_MIN) addWallMeshPiece(group, lineSlice(line, cursor, length), index);
 }
 
-function buildViewerFloor(group) {
+function createPlanShapeGeometry() {
   const shape = new THREE.Shape();
   outerPolygon.forEach((point, index) => {
     const world = planToWorld(point.x, point.y);
@@ -773,24 +798,97 @@ function buildViewerFloor(group) {
     else shape.lineTo(world.x, world.z);
   });
   shape.closePath();
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: viewerPalette.stone, map: viewerTextures.floor, roughness: 0.92, metalness: 0.01 });
-  floorMaterial.map.repeat.set(8, 10);
-  const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), floorMaterial);
+  return new THREE.ShapeGeometry(shape);
+}
+
+function addCeilingDetails(group) {
+  const railMaterial = makeViewerMaterial(0xc8a969, 0.58, 0.08);
+  const panelMaterial = new THREE.MeshBasicMaterial({ color: 0xffdfa2 });
+  const rails = [
+    { x: 280, y: 205, width: 7.2, depth: 0.08, angle: 0 },
+    { x: 274, y: 514, width: 8.4, depth: 0.08, angle: 0 },
+    { x: 538, y: 822, width: 7.2, depth: 0.08, angle: 0 },
+    { x: 468, y: 444, width: 7.8, depth: 0.07, angle: Math.PI / 2 },
+  ];
+  for (const rail of rails) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(rail.width, 0.045, rail.depth), railMaterial);
+    mesh.position.copy(planToWorld(rail.x, rail.y, VIEWER_WALL_HEIGHT - 0.035));
+    mesh.rotation.y = rail.angle;
+    group.add(mesh);
+  }
+
+  const ceilingLights = [
+    { x: 390, y: 742, width: 0.92 },
+    { x: 390, y: 612, width: 0.84 },
+    { x: 390, y: 482, width: 0.78 },
+    { x: 390, y: 352, width: 0.72 },
+    { x: 258, y: 666, width: 0.62 },
+    { x: 548, y: 802, width: 0.68 },
+  ];
+  for (const item of ceilingLights) {
+    const light = new THREE.Mesh(new THREE.BoxGeometry(item.width, 0.022, 0.18), panelMaterial);
+    light.position.copy(planToWorld(item.x, item.y, VIEWER_WALL_HEIGHT - 0.075));
+    group.add(light);
+
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(item.width + 0.12, 0.018, 0.028), railMaterial);
+    trim.position.copy(planToWorld(item.x, item.y - 6, VIEWER_WALL_HEIGHT - 0.065));
+    group.add(trim);
+
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.66, 36),
+      new THREE.MeshBasicMaterial({ color: 0xffd89a, transparent: true, opacity: 0.06, depthWrite: false })
+    );
+    glow.position.copy(planToWorld(item.x, item.y, VIEWER_WALL_HEIGHT - 0.082));
+    glow.rotation.x = Math.PI / 2;
+    group.add(glow);
+  }
+
+  const accentPanels = [
+    { x: 248, y: 246 },
+    { x: 505, y: 650 },
+  ];
+  for (const item of accentPanels) {
+    const light = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.018, 0.15), panelMaterial);
+    light.position.copy(planToWorld(item.x, item.y, VIEWER_WALL_HEIGHT - 0.055));
+    group.add(light);
+
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.72, 36),
+      new THREE.MeshBasicMaterial({ color: 0xffdfaa, transparent: true, opacity: 0.08, depthWrite: false })
+    );
+    glow.position.copy(planToWorld(item.x, item.y, VIEWER_WALL_HEIGHT - 0.07));
+    glow.rotation.x = Math.PI / 2;
+    group.add(glow);
+  }
+}
+
+function buildViewerFloor(group) {
+  const floorGeometry = createPlanShapeGeometry();
+  const floorMaterial = new THREE.MeshStandardMaterial({
+    color: 0xd0c0aa,
+    map: cloneViewerTexture(viewerTextures.floor, 5.5, 7.5),
+    roughness: 0.96,
+    metalness: 0,
+  });
+  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   group.add(floor);
 
-  const ceiling = floor.clone();
-  ceiling.material = new THREE.MeshStandardMaterial({ color: 0xfff4e5, roughness: 0.86, side: THREE.BackSide });
+  const ceiling = new THREE.Mesh(
+    createPlanShapeGeometry(),
+    new THREE.MeshStandardMaterial({
+      color: 0xeadfce,
+      map: cloneViewerTexture(viewerTextures.ceiling, 4.6, 6.2),
+      roughness: 0.9,
+      metalness: 0,
+      side: THREE.BackSide,
+    })
+  );
   ceiling.position.y = VIEWER_WALL_HEIGHT;
   ceiling.rotation.x = Math.PI / 2;
   group.add(ceiling);
-
-  for (let i = 0; i < 7; i += 1) {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.035, 0.12), new THREE.MeshBasicMaterial({ color: 0xffedc6 }));
-    strip.position.copy(planToWorld(170 + i * 58, 180 + (i % 3) * 220, VIEWER_WALL_HEIGHT - 0.04));
-    group.add(strip);
-  }
+  addCeilingDetails(group);
 }
 
 function makePerfumeBottle(scale = 1) {
@@ -1003,7 +1101,10 @@ function createViewerObjectMesh(item) {
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.46, 10), makeViewerMaterial(viewerPalette.navySoft, 0.66));
     stand.position.y = 0.22;
     group.add(stand);
-    const airflow = new THREE.Mesh(new THREE.ConeGeometry(0.44, 1.32, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xbdd8cc, transparent: true, opacity: 0.08, side: THREE.DoubleSide }));
+    const airflow = new THREE.Mesh(
+      new THREE.ConeGeometry(0.34, 1.24, 24, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x8bb4ad, transparent: true, opacity: 0.045, side: THREE.DoubleSide, depthWrite: false })
+    );
     airflow.rotation.x = Math.PI / 2;
     airflow.position.set(0, 0.5, -0.8);
     group.add(airflow);
