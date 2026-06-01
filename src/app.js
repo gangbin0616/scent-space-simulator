@@ -110,24 +110,28 @@ const cameras = {
 
 const VIEWER_WORLD_SCALE = 0.045;
 const VIEWER_EYE_HEIGHT = 1.62;
-const VIEWER_WALL_HEIGHT = 4.65;
-const VIEWER_WALL_THICKNESS = 0.28;
+const VIEWER_WALL_HEIGHT = 3.35;
+const VIEWER_WALL_THICKNESS = 0.24;
 const VIEWER_OBJECT_PICK_RADIUS = 0.42;
+const VIEWER_WINDOW_SILL_HEIGHT = 0.72;
+const VIEWER_WINDOW_HEAD_HEIGHT = 2.42;
+const VIEWER_DOOR_HEAD_HEIGHT = 2.72;
+const VIEWER_OPENING_EDGE_MIN = 3;
 
 const viewerPalette = {
-  plaster: 0xf0dfc6,
-  plasterAlt: 0xe6cfad,
-  stone: 0xe5d7c2,
-  navy: 0x172132,
-  navySoft: 0x20293a,
-  terracotta: 0xb56f4d,
-  terracottaLight: 0xc8835d,
-  wood: 0x9f6040,
-  woodLight: 0xb87550,
+  plaster: 0xf3e7d5,
+  plasterAlt: 0xe8d9c3,
+  stone: 0xd9d1c5,
+  navy: 0x172333,
+  navySoft: 0x263140,
+  terracotta: 0xa86548,
+  terracottaLight: 0xc08061,
+  wood: 0x835a42,
+  woodLight: 0xa97555,
   brass: 0xc7a15b,
   foliage: 0x6f7653,
   foliageLight: 0x828a61,
-  glass: 0xdbe7e3,
+  glass: 0xcfe2e4,
   cream: 0xfffaf1,
   amber: 0xd8a35e,
 };
@@ -159,28 +163,28 @@ function makeTextureCanvas(width, height, painter) {
 
 const viewerTextures = {
   wall: makeTextureCanvas(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = "#eadcc6";
+    ctx.fillStyle = "#efe3d2";
     ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 180; i += 1) {
-      const alpha = 0.035 + (i % 5) * 0.006;
+    for (let i = 0; i < 130; i += 1) {
+      const alpha = 0.02 + (i % 5) * 0.004;
       ctx.fillStyle = i % 2 ? `rgba(126,92,64,${alpha})` : `rgba(255,250,241,${alpha})`;
-      ctx.fillRect((i * 47) % w, (i * 31) % h, 2 + (i % 7), 1 + (i % 5));
+      ctx.fillRect((i * 47) % w, (i * 31) % h, 2 + (i % 7), 1 + (i % 4));
     }
     for (let y = 32; y < h; y += 64) {
-      ctx.fillStyle = "rgba(255,250,241,0.12)";
-      ctx.fillRect(0, y, w, 2);
+      ctx.fillStyle = "rgba(255,250,241,0.1)";
+      ctx.fillRect(0, y, w, 1);
     }
   }),
   floor: makeTextureCanvas(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = "#d8c9b5";
+    ctx.fillStyle = "#d6cec2";
     ctx.fillRect(0, 0, w, h);
     for (let y = 0; y < h; y += 42) {
-      ctx.fillStyle = "rgba(255,250,241,0.28)";
+      ctx.fillStyle = "rgba(255,250,241,0.22)";
       ctx.fillRect(0, y, w, 2);
     }
     for (let x = 0; x < w; x += 64) {
-      ctx.fillStyle = "rgba(90,70,48,0.08)";
-      ctx.fillRect(x, 0, 2, h);
+      ctx.fillStyle = "rgba(90,70,48,0.06)";
+      ctx.fillRect(x, 0, 1, h);
     }
   }),
   mural: makeTextureCanvas(512, 320, (ctx, w, h) => {
@@ -604,47 +608,161 @@ function makeViewerMaterial(color, roughness = 0.72, metalness = 0.02) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
 
+function cloneViewerTexture(texture, repeatX = 1, repeatY = 1) {
+  const next = texture.clone();
+  next.colorSpace = THREE.SRGBColorSpace;
+  next.wrapS = THREE.RepeatWrapping;
+  next.wrapT = THREE.RepeatWrapping;
+  next.repeat.set(repeatX, repeatY);
+  next.needsUpdate = true;
+  return next;
+}
+
+function viewerObjectScale(item) {
+  const raw = item.scale ?? 1;
+  if (["glass-door", "window", "exit-door"].includes(item.kind)) return clamp(1 + (raw - 1) * 0.28, 0.9, 1.16);
+  return clamp(raw, 0.82, 1.12);
+}
+
+function linePlanLength(line) {
+  const [x1, y1, x2, y2] = line;
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+function lineSlice(line, start, end) {
+  const [x1, y1, x2, y2] = line;
+  const length = linePlanLength(line) || 1;
+  const startT = clamp(start / length, 0, 1);
+  const endT = clamp(end / length, 0, 1);
+  return [
+    x1 + (x2 - x1) * startT,
+    y1 + (y2 - y1) * startT,
+    x1 + (x2 - x1) * endT,
+    y1 + (y2 - y1) * endT,
+  ];
+}
+
+function openingWidthPlan(item) {
+  const scale = viewerObjectScale(item);
+  if (item.kind === "glass-door") return 58 * scale;
+  if (item.kind === "exit-door") return 44 * scale;
+  return 44 * scale;
+}
+
+function getWallOpenings(line) {
+  const [x1, y1, x2, y2] = line;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  const length = Math.sqrt(lengthSq);
+  if (!length) return [];
+  return viewerElements
+    .filter((item) => ["glass-door", "window", "exit-door"].includes(item.kind))
+    .map((item) => {
+      const t = ((item.x - x1) * dx + (item.y - y1) * dy) / lengthSq;
+      if (t < 0 || t > 1) return null;
+      const px = x1 + dx * t;
+      const py = y1 + dy * t;
+      const distance = Math.hypot(item.x - px, item.y - py);
+      const tolerance = item.kind === "glass-door" ? 34 : 24;
+      if (distance > tolerance) return null;
+      const width = openingWidthPlan(item);
+      return {
+        item,
+        start: clamp(t * length - width * 0.5, 0, length),
+        end: clamp(t * length + width * 0.5, 0, length),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start);
+}
+
 function addPickable(mesh, item) {
   mesh.userData.viewerItem = item;
   viewer3d.interactive.push(mesh);
   return mesh;
 }
 
-function addWallMesh(group, line, index) {
+function addWallMeshPiece(group, line, index, options = {}) {
   const [x1, y1, x2, y2] = line;
   const a = planToWorld(x1, y1);
   const b = planToWorld(x2, y2);
   const length = Math.max(0.05, a.distanceTo(b));
-  const geometry = new THREE.BoxGeometry(length, VIEWER_WALL_HEIGHT, VIEWER_WALL_THICKNESS);
+  const height = options.height ?? VIEWER_WALL_HEIGHT;
+  const yCenter = options.yCenter ?? height * 0.5;
+  const depth = options.depth ?? VIEWER_WALL_THICKNESS;
+  const geometry = new THREE.BoxGeometry(length, height, depth);
   const material = new THREE.MeshStandardMaterial({
-    color: index % 5 === 0 ? viewerPalette.plasterAlt : viewerPalette.plaster,
-    map: viewerTextures.wall,
+    color: options.color ?? (index % 5 === 0 ? viewerPalette.plasterAlt : viewerPalette.plaster),
+    map: cloneViewerTexture(viewerTextures.wall, Math.max(1, length * 0.45), Math.max(0.8, height * 0.7)),
     roughness: 0.88,
     metalness: 0.01,
   });
-  material.map.repeat.set(Math.max(1, length * 0.6), 1.8);
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set((a.x + b.x) * 0.5, VIEWER_WALL_HEIGHT * 0.5, (a.z + b.z) * 0.5);
+  mesh.position.set((a.x + b.x) * 0.5, yCenter, (a.z + b.z) * 0.5);
   mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  if (index % 3 === 0) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.86, 0.06, 0.05), makeViewerMaterial(viewerPalette.brass, 0.5, 0.14));
-    rail.position.set(0, 1.12, VIEWER_WALL_THICKNESS * 0.56);
-    mesh.add(rail);
+  if (options.trim !== false && height > 1.2 && length > 0.55) {
+    const base = new THREE.Mesh(new THREE.BoxGeometry(length * 0.96, 0.075, 0.055), makeViewerMaterial(viewerPalette.navySoft, 0.72, 0.03));
+    base.position.set(0, -height * 0.5 + 0.18, depth * 0.56);
+    mesh.add(base);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(length * 0.94, 0.035, 0.04), makeViewerMaterial(viewerPalette.brass, 0.52, 0.12));
+    cap.position.set(0, height * 0.5 - 0.28, depth * 0.56);
+    mesh.add(cap);
   }
-  if (index % 5 === 1) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(length * 0.72, 0.08, 0.06), makeViewerMaterial(viewerPalette.navy, 0.72));
-    rail.position.set(0, 2.82, VIEWER_WALL_THICKNESS * 0.56);
-    mesh.add(rail);
+}
+
+function addOpeningWallPieces(group, line, index, opening) {
+  const openingLine = lineSlice(line, opening.start, opening.end);
+  if (opening.item.kind === "window") {
+    addWallMeshPiece(group, openingLine, index, {
+      height: VIEWER_WINDOW_SILL_HEIGHT,
+      yCenter: VIEWER_WINDOW_SILL_HEIGHT * 0.5,
+      color: viewerPalette.plasterAlt,
+      trim: false,
+    });
+    const headerHeight = VIEWER_WALL_HEIGHT - VIEWER_WINDOW_HEAD_HEIGHT;
+    if (headerHeight > 0.12) {
+      addWallMeshPiece(group, openingLine, index, {
+        height: headerHeight,
+        yCenter: VIEWER_WINDOW_HEAD_HEIGHT + headerHeight * 0.5,
+        color: viewerPalette.plasterAlt,
+        trim: false,
+      });
+    }
+    return;
   }
-  if (index % 6 === 2 && length > 2.2) {
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(Math.min(2.4, length * 0.5), 1.8, 0.045), makeViewerMaterial(viewerPalette.terracottaLight, 0.82));
-    panel.position.set(0, 1.55, VIEWER_WALL_THICKNESS * 0.58);
-    mesh.add(panel);
+  const headerHeight = VIEWER_WALL_HEIGHT - VIEWER_DOOR_HEAD_HEIGHT;
+  if (headerHeight > 0.12) {
+    addWallMeshPiece(group, openingLine, index, {
+      height: headerHeight,
+      yCenter: VIEWER_DOOR_HEAD_HEIGHT + headerHeight * 0.5,
+      color: viewerPalette.plasterAlt,
+      trim: false,
+    });
   }
+}
+
+function addWallMesh(group, line, index) {
+  const length = linePlanLength(line);
+  const openings = getWallOpenings(line);
+  if (!openings.length) {
+    addWallMeshPiece(group, line, index);
+    return;
+  }
+
+  let cursor = 0;
+  for (const opening of openings) {
+    if (opening.start > cursor + VIEWER_OPENING_EDGE_MIN) {
+      addWallMeshPiece(group, lineSlice(line, cursor, opening.start), index);
+    }
+    addOpeningWallPieces(group, line, index, opening);
+    cursor = Math.max(cursor, opening.end);
+  }
+  if (cursor < length - VIEWER_OPENING_EDGE_MIN) addWallMeshPiece(group, lineSlice(line, cursor, length), index);
 }
 
 function buildViewerFloor(group) {
@@ -725,19 +843,30 @@ function makeDisplayCounter(width = 1.7) {
 
 function makeRoundTable() {
   const group = new THREE.Group();
-  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.09, 40), makeViewerMaterial(viewerPalette.cream, 0.55));
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.075, 40), makeViewerMaterial(viewerPalette.cream, 0.55));
   top.position.y = 0.64;
   group.add(top);
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.6, 24), makeViewerMaterial(viewerPalette.woodLight, 0.72));
   stem.position.y = 0.32;
   group.add(stem);
-  addBottleRow(group, 5, 0.7, -0.06, -0.28, 0.14, 0.72);
+  addBottleRow(group, 4, 0.7, -0.05, -0.22, 0.14, 0.68);
   return group;
 }
 
 function makeWindowPanel() {
   const group = new THREE.Group();
-  const pane = new THREE.Mesh(new THREE.BoxGeometry(1.75, 1.45, 0.06), new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.04, transparent: true, opacity: 0.42, transmission: 0.25 }));
+  const pane = new THREE.Mesh(
+    new THREE.BoxGeometry(1.75, 1.45, 0.045),
+    new THREE.MeshPhysicalMaterial({
+      color: viewerPalette.glass,
+      roughness: 0.025,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.1,
+      transmission: 0.62,
+      depthWrite: false,
+    })
+  );
   pane.position.y = 1.58;
   group.add(pane);
   const frameMaterial = makeViewerMaterial(viewerPalette.navy, 0.62);
@@ -752,6 +881,9 @@ function makeWindowPanel() {
     frame.position.set(part.x, part.y, 0.02);
     group.add(frame);
   });
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(2.06, 0.11, 0.22), makeViewerMaterial(viewerPalette.stone, 0.58));
+  sill.position.set(0, 0.72, 0.05);
+  group.add(sill);
   return group;
 }
 
@@ -894,50 +1026,45 @@ function createViewerObjectMesh(item) {
     handle.position.set(0.34, 1.16, 0.08);
     group.add(handle);
   } else if (item.kind === "glass-door") {
-    const glassMaterial = new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.45, transmission: 0.25 });
+    const glassMaterial = new THREE.MeshPhysicalMaterial({ color: viewerPalette.glass, roughness: 0.025, metalness: 0, transparent: true, opacity: 0.36, transmission: 0.38 });
     const frameMaterial = makeViewerMaterial(viewerPalette.navy, 0.62);
     const jambMaterial = makeViewerMaterial(viewerPalette.navy, 0.54, 0.08);
-    const exterior = new THREE.Mesh(new THREE.BoxGeometry(2.62, 3.42, 0.045), makeViewerMaterial(0xf2d9ad, 0.88));
-    exterior.position.set(0, 1.76, -0.16);
-    group.add(exterior);
-    const exteriorGlow = new THREE.Mesh(new THREE.BoxGeometry(2.38, 3.12, 0.035), new THREE.MeshBasicMaterial({ color: 0xffefc5, transparent: true, opacity: 0.32 }));
-    exteriorGlow.position.set(0, 1.76, -0.125);
-    group.add(exteriorGlow);
+    const doorWidth = 1.74;
+    const doorHeight = 2.42;
+    const leafWidth = 0.74;
+    const rail = 0.055;
     const makeDoorLeaf = (side) => {
       const hinge = new THREE.Group();
-      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.96, 3.16, 0.055), glassMaterial);
-      glass.position.set(side * -0.48, 1.68, 0);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(leafWidth, doorHeight - 0.2, 0.055), glassMaterial);
+      glass.position.set(side * -leafWidth * 0.5, doorHeight * 0.5, 0);
       hinge.add(glass);
       [
-        { x: side * -0.98, y: 1.68, w: 0.07, h: 3.34 },
-        { x: side * -0.04, y: 1.68, w: 0.07, h: 3.34 },
-        { x: side * -0.51, y: 3.35, w: 1.02, h: 0.07 },
-        { x: side * -0.51, y: 0.01, w: 1.02, h: 0.07 },
+        { x: side * -leafWidth, y: doorHeight * 0.5, w: rail, h: doorHeight },
+        { x: 0, y: doorHeight * 0.5, w: rail, h: doorHeight },
+        { x: side * -leafWidth * 0.5, y: doorHeight - rail * 0.5, w: leafWidth + rail, h: rail },
+        { x: side * -leafWidth * 0.5, y: rail * 0.5, w: leafWidth + rail, h: rail },
       ].forEach((part) => {
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.12), frameMaterial);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.1), frameMaterial);
         frame.position.set(part.x, part.y, 0.02);
         hinge.add(frame);
       });
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.32, 12), makeViewerMaterial(viewerPalette.brass, 0.36, 0.22));
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.24, 12), makeViewerMaterial(viewerPalette.brass, 0.36, 0.22));
       handle.rotation.x = Math.PI / 2;
-      handle.position.set(side * -0.25, 1.48, 0.08);
+      handle.position.set(side * -0.22, 1.14, 0.08);
       hinge.add(handle);
-      hinge.position.set(side * 1.1, 0, 0.1);
-      hinge.rotation.y = side * -0.36;
+      hinge.position.set(side * (doorWidth * 0.5 - rail), 0, 0.08);
+      hinge.rotation.y = side * -0.24;
       return hinge;
     };
-    const recessedBack = new THREE.Mesh(new THREE.BoxGeometry(2.72, 3.58, 0.08), makeViewerMaterial(viewerPalette.plasterAlt, 0.86));
-    recessedBack.position.set(0, 1.78, -0.08);
-    group.add(recessedBack);
     group.add(makeDoorLeaf(-1));
     group.add(makeDoorLeaf(1));
     [
-      { x: -1.35, y: 1.78, w: 0.18, h: 3.56, z: 0.02 },
-      { x: 1.35, y: 1.78, w: 0.18, h: 3.56, z: 0.02 },
-      { x: 0, y: 3.56, w: 2.88, h: 0.18, z: 0.02 },
-      { x: 0, y: 0.03, w: 2.88, h: 0.08, z: 0.04 },
+      { x: -1.03, y: 1.34, w: 0.12, h: 2.68, z: 0.02 },
+      { x: 1.03, y: 1.34, w: 0.12, h: 2.68, z: 0.02 },
+      { x: 0, y: 2.66, w: 2.18, h: 0.12, z: 0.02 },
+      { x: 0, y: 0.03, w: 2.18, h: 0.07, z: 0.04 },
     ].forEach((part) => {
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.18), jambMaterial);
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, 0.14), jambMaterial);
       frame.position.set(part.x, part.y, part.z);
       group.add(frame);
     });
@@ -975,7 +1102,7 @@ function rebuildViewerScene() {
     const position = planToWorld(item.x, item.y);
     mesh.position.set(position.x, 0, position.z);
     mesh.rotation.y = Math.PI / 2 - (item.angle ?? 0);
-    mesh.scale.setScalar(item.scale ?? 1);
+    mesh.scale.setScalar(viewerObjectScale(item));
     group.add(mesh);
   });
 
@@ -991,23 +1118,23 @@ function initViewer3D() {
   viewer3d.renderer.shadowMap.enabled = true;
   viewer3d.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   viewer3d.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  viewer3d.renderer.toneMappingExposure = 1.18;
+  viewer3d.renderer.toneMappingExposure = 1.06;
 
   viewer3d.scene = new THREE.Scene();
-  viewer3d.scene.background = new THREE.Color(0xf7efe2);
-  viewer3d.scene.fog = new THREE.FogExp2(0xf7efe2, 0.018);
+  viewer3d.scene.background = new THREE.Color(0xf3ebdf);
+  viewer3d.scene.fog = new THREE.FogExp2(0xf3ebdf, 0.012);
 
   viewer3d.camera = new THREE.PerspectiveCamera(68, viewer.canvas.width / viewer.canvas.height, 0.05, 90);
-  viewer3d.scene.add(new THREE.HemisphereLight(0xfff5df, 0x8e7b61, 1.55));
-  viewer3d.scene.add(new THREE.AmbientLight(0xfff3df, 0.42));
-  const key = new THREE.DirectionalLight(0xffddb0, 1.55);
+  viewer3d.scene.add(new THREE.HemisphereLight(0xfff5df, 0x8e806f, 1.12));
+  viewer3d.scene.add(new THREE.AmbientLight(0xfff3df, 0.32));
+  const key = new THREE.DirectionalLight(0xffddb0, 1.18);
   key.position.set(-5, 8, 4);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
   viewer3d.scene.add(key);
 
   for (let i = 0; i < 4; i += 1) {
-    const light = new THREE.PointLight(0xffe0aa, 1.35, 17);
+    const light = new THREE.PointLight(0xffe0aa, 0.82, 15);
     const x = PLAN_WIDTH * (0.28 + i * 0.14);
     const y = PLAN_HEIGHT * (0.18 + (i % 2) * 0.48);
     light.position.copy(planToWorld(x, y, VIEWER_WALL_HEIGHT - 0.55));

@@ -339,6 +339,7 @@
       const wallPiercingKinds = new Set(["glass-door", "exit-door", "window"]);
       const wallNearbyKinds = new Set(["shelf", "counter", "mural", "cooler", "thermometer"]);
       const wallBoundKinds = new Set([...wallPiercingKinds, ...wallNearbyKinds]);
+      const flushWallKinds = new Set(["mural"]);
 
       const els = {
         canvas: document.querySelector("#planCanvas"),
@@ -420,6 +421,38 @@
       function objectRadius(item) {
         const base = wallBoundKinds.has(item.kind) ? 22 : 16;
         return base * (item.scale ?? 1);
+      }
+
+      function drawWallPiercingItem(item, radius, isSelected) {
+        const length = item.kind === "glass-door" ? radius * 3.3 : radius * 2.8;
+        const depth = item.kind === "window" ? radius * 1.05 : radius * 1.28;
+        ctx.fillStyle = "#fffaf1";
+        ctx.fillRect(-depth * 0.42, -length * 0.5, depth * 0.84, length);
+        ctx.fillStyle = "rgba(207,226,228,0.72)";
+        ctx.fillRect(-depth * 0.24, -length * 0.42, depth * 0.48, length * 0.84);
+        ctx.fillStyle = "rgba(216,231,221,0.55)";
+        ctx.fillRect(-depth * 0.7, -length * 0.42, depth * 0.22, length * 0.84);
+        ctx.strokeStyle = isSelected ? "#172132" : "#0f1725";
+        ctx.lineWidth = isSelected ? 4 : 2.5;
+        ctx.strokeRect(-depth * 0.28, -length * 0.48, depth * 0.56, length * 0.96);
+        ctx.beginPath();
+        ctx.moveTo(0, -length * 0.46);
+        ctx.lineTo(0, length * 0.46);
+        ctx.stroke();
+        if (item.kind === "glass-door") {
+          ctx.beginPath();
+          ctx.arc(depth * 0.2, -length * 0.25, length * 0.24, -Math.PI / 2, 0);
+          ctx.arc(depth * 0.2, length * 0.25, length * 0.24, Math.PI, Math.PI * 1.5);
+          ctx.strokeStyle = "rgba(181,111,77,0.7)";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.strokeStyle = isSelected ? "#172132" : "#b56f4d";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(radius * 1.8, 0);
+        ctx.stroke();
       }
 
       function canvasPoint(event) {
@@ -508,7 +541,7 @@
         if (!wall) return keepOutsideWalls(point, item);
         const mount = closestPointOnSegment(point, wall.line);
         const normal = wallNormalFromLine(wall.line, mount);
-        const offset = wallPiercingKinds.has(item.kind) ? 2 : 28;
+        const offset = wallPiercingKinds.has(item.kind) || flushWallKinds.has(item.kind) ? 0 : 28;
         return {
           x: clamp(mount.x + normal.x * offset, 0, PLAN_WIDTH),
           y: clamp(mount.y + normal.y * offset, 0, PLAN_HEIGHT),
@@ -530,8 +563,9 @@
       }
 
       function setItemPoint(item, point) {
-        item.x = Math.round(clamp(point.x, 0, PLAN_WIDTH));
-        item.y = Math.round(clamp(point.y, 0, PLAN_HEIGHT));
+        const next = wallPiercingKinds.has(item.kind) || flushWallKinds.has(item.kind) ? snapToWallMount(point, item) : point;
+        item.x = Math.round(clamp(next.x, 0, PLAN_WIDTH));
+        item.y = Math.round(clamp(next.y, 0, PLAN_HEIGHT));
       }
 
       function hitItem(point) {
@@ -610,10 +644,18 @@
         ctx.save();
         ctx.translate(item.x, item.y);
         ctx.rotate(item.angle ?? 0);
+        if (wallPiercingKinds.has(item.kind)) {
+          drawWallPiercingItem(item, radius, isSelected);
+          ctx.restore();
+          ctx.fillStyle = "#172132";
+          ctx.font = "700 12px system-ui, sans-serif";
+          ctx.fillText(defaultLabel(item.kind), item.x + 14, item.y - 9);
+          return;
+        }
         ctx.fillStyle = isSelected ? "#c7a15b" : "#b56f4d";
         ctx.strokeStyle = isSelected ? "#172132" : "#fffaf1";
         ctx.lineWidth = isSelected ? 4 : 2.5;
-        if (["glass-door", "exit-door", "window", "shelf", "counter", "partition", "mural"].includes(item.kind)) {
+        if (["shelf", "counter", "partition", "mural"].includes(item.kind)) {
           ctx.beginPath();
           ctx.roundRect(-radius * 0.62, -radius * 1.7, radius * 1.24, radius * 3.4, 4);
           ctx.fill();
@@ -657,6 +699,29 @@
           previewCtx.stroke();
         }
         previewCtx.rotate(item.angle ?? 0);
+        if (wallPiercingKinds.has(item.kind)) {
+          previewCtx.fillStyle = "#fffaf1";
+          previewCtx.fillRect(-18, -54, 36, 108);
+          previewCtx.fillStyle = "rgba(207,226,228,0.76)";
+          previewCtx.fillRect(-9, -44, 18, 88);
+          previewCtx.fillStyle = "rgba(216,231,221,0.58)";
+          previewCtx.fillRect(-30, -44, 9, 88);
+          previewCtx.strokeStyle = "#172132";
+          previewCtx.lineWidth = 3;
+          previewCtx.strokeRect(-12, -48, 24, 96);
+          previewCtx.beginPath();
+          previewCtx.moveTo(0, -46);
+          previewCtx.lineTo(0, 46);
+          previewCtx.stroke();
+          previewCtx.strokeStyle = "#b56f4d";
+          previewCtx.beginPath();
+          previewCtx.moveTo(0, 0);
+          previewCtx.lineTo(54, 0);
+          previewCtx.stroke();
+          previewCtx.restore();
+          els.previewText.textContent = `x ${Math.round(item.x)} / y ${Math.round(item.y)} / 유리 개구부 / 방향 ${Math.round(((item.angle ?? 0) * 180) / Math.PI)}도 / 벽 거리 ${Math.round(wall?.distance ?? 0)}px`;
+          return;
+        }
         previewCtx.fillStyle = "#b56f4d";
         previewCtx.strokeStyle = "#172132";
         previewCtx.lineWidth = 3;
